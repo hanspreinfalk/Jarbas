@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-list-composio-toolkits"
+description = "Allows listing Composio toolkits for the Connectors screen."
+commands.allow = ["list_composio_toolkits"]

@@ -1,0 +1,234 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource/libre-baskerville/400.css";
+@import "@fontsource/libre-baskerville/400-italic.css";
+@import "@fontsource/libre-baskerville/700.css";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-geist-mono);
+  --font-display: var(--font-display);
+  --font-heading: var(--font-sans);
+  --color-sidebar-ring: var(--sidebar-ring);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar: var(--sidebar);
+  --color-chart-5: var(--chart-5);
+  --color-chart-4: var(--chart-4);
+  --color-chart-3: var(--chart-3);
+  --color-chart-2: var(--chart-2);
+  --color-chart-1: var(--chart-1);
+  --color-ring: var(--ring);
+  --color-input: var(--input);
+  --color-border: var(--border);
+  --color-destructive: var(--destructive);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-accent: var(--accent);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-muted: var(--muted);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-background: var(--background);
+  --color-navy: var(--navy);
+  --color-cream: var(--cream);
+  --color-sky: var(--sky);
+  --color-ink: var(--ink);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) * 1.4);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
+}
+
+:root {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Libre Baskerville", ui-serif, Georgia, serif;
+  --font-geist-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+    monospace;
+  --background: #ffffff;
+  --foreground: #0a0a0a;
+  --card: #ffffff;
+  --card-foreground: #0a0a0a;
+  --popover: #ffffff;
+  --popover-foreground: #0a0a0a;
+  --primary: #080870;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f5ee;
+  --secondary-foreground: #0a0a0a;
+  --muted: #f7f5ee;
+  --muted-foreground: #5c5c66;
+  --accent: #bce2ff;
+  --accent-foreground: #080870;
+  --destructive: oklch(0.55 0.2 25);
+  --border: #e6e4dc;
+  --input: #e6e4dc;
+  --ring: #080870;
+  --navy: #080870;
+  --cream: #f7f5ee;
+  --sky: #bce2ff;
+  --ink: #0a0a0a;
+  --chart-1: #080870;
+  --chart-2: #3070b3;
+  --chart-3: #bce2ff;
+  --chart-4: #f7f5ee;
+  --chart-5: #0a0a0a;
+  --radius: 0.5rem;
+  --sidebar: #f3f0e6;
+  --sidebar-foreground: #0a0a0a;
+  --sidebar-primary: #080870;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #e8e4d8;
+  --sidebar-accent-foreground: #0a0a0a;
+  --sidebar-border: #ddd9cc;
+  --sidebar-ring: #080870;
+}
+
+.dark {
+  --background: #0a0a16;
+  --foreground: #f7f5ee;
+  --card: #121222;
+  --card-foreground: #f7f5ee;
+  --popover: #121222;
+  --popover-foreground: #f7f5ee;
+  --primary: #bce2ff;
+  --primary-foreground: #080870;
+  --secondary: #16162a;
+  --secondary-foreground: #f7f5ee;
+  --muted: #16162a;
+  --muted-foreground: #a8a6b0;
+  --accent: #1a2a4a;
+  --accent-foreground: #bce2ff;
+  --destructive: oklch(0.65 0.2 25);
+  --border: #2a2a3d;
+  --input: #2a2a3d;
+  --ring: #bce2ff;
+  /* Brand tokens stay constant; use semantic colors for theme-adaptive UI */
+  --navy: #080870;
+  --cream: #f7f5ee;
+  --sky: #bce2ff;
+  --ink: #0a0a0a;
+  --chart-1: #bce2ff;
+  --chart-2: #6ea8ef;
+  --chart-3: #080870;
+  --chart-4: #16162a;
+  --chart-5: #f7f5ee;
+  --sidebar: #0f0f1c;
+  --sidebar-foreground: #f7f5ee;
+  --sidebar-primary: #bce2ff;
+  --sidebar-primary-foreground: #080870;
+  --sidebar-accent: #1a1a2e;
+  --sidebar-accent-foreground: #f7f5ee;
+  --sidebar-border: #2a2a3d;
+  --sidebar-ring: #bce2ff;
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+  html {
+    @apply font-sans;
+  }
+}
+
+@layer utilities {
+  .jarbas-shell {
+    background:
+      radial-gradient(
+        1200px 600px at 0% 0%,
+        rgba(188, 226, 255, 0.28),
+        transparent 55%
+      ),
+      linear-gradient(180deg, #f7f5ee 0%, #ffffff 42%, #ffffff 100%);
+  }
+
+  .dark .jarbas-shell {
+    background:
+      radial-gradient(
+        1000px 520px at 0% 0%,
+        rgba(188, 226, 255, 0.08),
+        transparent 55%
+      ),
+      linear-gradient(180deg, #0a0a16 0%, #0f0f1c 42%, #121222 100%);
+  }
+
+  .jarbas-sidebar {
+    background: linear-gradient(180deg, #f7f5ee 0%, #f3f0e6 48%, #efebe0 100%);
+  }
+
+  .dark .jarbas-sidebar {
+    background: linear-gradient(180deg, #0f0f1c 0%, #0c0c18 48%, #0a0a16 100%);
+  }
+
+  .jarbas-chat-canvas {
+    background:
+      radial-gradient(
+        800px 420px at 50% 0%,
+        rgba(188, 226, 255, 0.22),
+        transparent 60%
+      ),
+      linear-gradient(180deg, #fbfaf6 0%, #ffffff 38%, #ffffff 100%);
+  }
+
+  .dark .jarbas-chat-canvas {
+    background:
+      radial-gradient(
+        800px 420px at 50% 0%,
+        rgba(188, 226, 255, 0.06),
+        transparent 60%
+      ),
+      linear-gradient(180deg, #0f0f1c 0%, #0a0a16 38%, #0a0a16 100%);
+  }
+
+  .label-caps {
+    @apply text-[11px] font-medium tracking-[0.14em] uppercase;
+  }
+
+  .animate-rise {
+    animation: rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  .animate-fade-soft {
+    animation: fade-soft 0.4s ease both;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-soft {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}

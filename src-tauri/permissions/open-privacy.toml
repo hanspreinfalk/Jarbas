@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-open-privacy-settings"
+description = "Allows opening macOS Screen Recording and Accessibility settings panes."
+commands.allow = ["open_privacy_settings"]
