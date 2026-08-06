@@ -40,7 +40,7 @@ export function RecordingPage() {
     <div className="animate-rise mx-auto flex w-full max-w-3xl flex-col px-4 py-8 sm:px-6 lg:px-8">
       <p className="label-caps text-muted-foreground">Capture</p>
       <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-        Recording / Ask
+        Recording
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
         Record how you work.
