@@ -9,11 +9,9 @@ import {
 import {
   ArrowUp,
   Check,
-  ChevronRight,
+  ChevronDown,
   Copy,
   Square,
-  Terminal,
-  Wrench,
 } from "lucide-react";
 import Markdown from "react-markdown";
 import { Button } from "@/components/ui/button";
@@ -206,60 +204,161 @@ function formatToolArgs(args: unknown): string {
   }
 }
 
-function ToolCard({ tool }: { tool: ToolCallState }) {
+function asRecord(value: unknown): Record<string, unknown> | null {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return null;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function truncateMiddle(value: string, max = 72): string {
+  if (value.length <= max) return value;
+  const keep = Math.floor((max - 1) / 2);
+  return `${value.slice(0, keep)}…${value.slice(-keep)}`;
+}
+
+function basenamePath(path: string): string {
+  const parts = path.split(/[\\/]/).filter(Boolean);
+  return parts[parts.length - 1] || path;
+}
+
+function toolBaseName(name: string): string {
+  return name.split("__").pop() || name;
+}
+
+function humanizeToolName(name: string): string {
+  const base = toolBaseName(name)
+    .replace(/[-_]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!base) return "tool";
+  return base.charAt(0).toUpperCase() + base.slice(1);
+}
+
+function toolDisplayTitle(tool: ToolCallState): string {
+  const base = toolBaseName(tool.name).toLowerCase();
+  const args = asRecord(tool.args);
+
+  if (base === "bash" || base === "shell" || base === "run_terminal_cmd") {
+    const command = firstString(args?.command, args?.cmd, args?.script);
+    if (command) {
+      const oneLine = command.split(/\r?\n/)[0]?.trim() || command;
+      return truncateMiddle(oneLine, 68);
+    }
+    return "bash";
+  }
+
+  if (base === "read" || base === "read_file") {
+    const path = firstString(args?.path, args?.file_path, args?.filePath, args?.file);
+    if (path) return truncateMiddle(basenamePath(path), 56);
+    return "read";
+  }
+
+  if (base === "write" || base === "write_file" || base === "edit" || base === "apply_patch") {
+    const path = firstString(args?.path, args?.file_path, args?.filePath, args?.file);
+    if (path) return truncateMiddle(basenamePath(path), 56);
+    return humanizeToolName(tool.name);
+  }
+
+  if (base === "grep" || base === "rg" || base === "search") {
+    const query = firstString(args?.pattern, args?.query, args?.q);
+    if (query) return truncateMiddle(query, 56);
+    return "search";
+  }
+
+  return humanizeToolName(tool.name);
+}
+
+function ToolGlyph({
+  running,
+  failed,
+}: {
+  running?: boolean;
+  failed?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "mt-0.5 inline-grid shrink-0 grid-cols-2 gap-[2px] text-muted-foreground/70",
+        running && "animate-pulse text-muted-foreground",
+        failed && "text-destructive/80",
+      )}
+      aria-hidden
+    >
+      <span className="size-[3px] rounded-full bg-current" />
+      <span className="size-[3px] rounded-full bg-current" />
+      <span className="size-[3px] rounded-full bg-current" />
+      <span className="size-[3px] rounded-full bg-current" />
+    </span>
+  );
+}
+
+function ToolRow({ tool }: { tool: ToolCallState }) {
   const [open, setOpen] = useState(false);
-  const Icon = tool.name.includes("bash") ? Terminal : Wrench;
+  const title = toolDisplayTitle(tool);
   const input = formatToolArgs(tool.args);
   const output = tool.result.trim();
   const hasDetails = Boolean(input || output);
+  const failed = tool.status === "error";
 
   return (
-    <div className="border border-border bg-muted/40">
+    <div className="min-w-0">
       <button
         type="button"
-        className="flex w-full items-center gap-2 px-2.5 py-1.5 text-left"
-        onClick={() => setOpen((current) => !current)}
+        className={cn(
+          "group flex w-full min-w-0 items-start gap-2 py-0.5 text-left text-[13px] leading-snug transition-colors",
+          failed
+            ? "text-destructive/90 hover:text-destructive"
+            : "text-muted-foreground hover:text-foreground",
+          !hasDetails && "cursor-default",
+        )}
+        onClick={() => {
+          if (hasDetails) setOpen((current) => !current);
+        }}
         disabled={!hasDetails}
       >
-        <Icon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">
-          {tool.label}
-        </span>
-        <span
-          className={cn(
-            "label-caps text-[10px]",
-            tool.status === "running" && "text-muted-foreground",
-            tool.status === "done" && "text-primary",
-            tool.status === "error" && "text-destructive",
-          )}
-        >
-          {tool.status === "running"
-            ? "Running"
-            : tool.status === "error"
-              ? "Failed"
-              : "Done"}
-        </span>
+        <ToolGlyph running={tool.status === "running"} failed={failed} />
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+        {hasDetails ? (
+          <ChevronDown
+            className={cn(
+              "mt-0.5 size-3.5 shrink-0 text-muted-foreground/50 opacity-0 transition-all group-hover:opacity-100",
+              open && "rotate-180 opacity-100",
+            )}
+          />
+        ) : null}
       </button>
       {open && hasDetails ? (
-        <div className="flex flex-col gap-2 border-t border-border px-2.5 py-2">
-          <div>
-            <p className="label-caps mb-1 text-[10px] text-muted-foreground">
-              Input
-            </p>
-            <pre className="max-h-36 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-foreground">
-              {input || "—"}
+        <div className="mt-1 mb-1.5 ml-[14px] space-y-2 border-l border-border/70 pl-3">
+          {input ? (
+            <pre className="max-h-40 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
+              {input}
             </pre>
-          </div>
-          <div>
-            <p className="label-caps mb-1 text-[10px] text-muted-foreground">
-              Output
-            </p>
-            <pre className="max-h-36 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-              {output || (tool.status === "running" ? "Running…" : "—")}
+          ) : null}
+          {output || tool.status === "running" ? (
+            <pre className="max-h-48 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground/90">
+              {output || "Running…"}
             </pre>
-          </div>
+          ) : null}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ToolActivityList({ tools }: { tools: ToolCallState[] }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      {tools.map((tool) => (
+        <ToolRow key={tool.id} tool={tool} />
+      ))}
     </div>
   );
 }
@@ -274,45 +373,40 @@ function WorkedForDetails({
   const [open, setOpen] = useState(false);
   const toolCount = tools.length;
   const collapsible = toolCount > 0;
-  const label = (
-    <>
-      <span>Worked for {durationLabel}</span>
-      {collapsible ? (
-        <>
-          <span className="text-muted-foreground/80">
-            · {toolCount} {toolCount === 1 ? "tool" : "tools"}
-          </span>
-          <ChevronRight
-            className={cn(
-              "size-3.5 transition-transform",
-              open && "rotate-90",
-            )}
-          />
-        </>
-      ) : null}
-    </>
-  );
+
+  if (!collapsible) {
+    return (
+      <p className="text-[13px] text-muted-foreground">
+        Worked for {durationLabel}
+      </p>
+    );
+  }
 
   return (
-    <div>
-      {collapsible ? (
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          className="inline-flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          {label}
-        </button>
-      ) : (
-        <p className="inline-flex items-center gap-1 text-[12px] text-muted-foreground">
-          {label}
-        </p>
-      )}
-      {collapsible && open ? (
-        <div className="mt-2 flex flex-col gap-1.5">
-          {tools.map((tool) => (
-            <ToolCard key={tool.id} tool={tool} />
-          ))}
+    <div className="min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <ToolGlyph />
+        <span className="truncate">
+          Worked for {durationLabel}
+          <span className="text-muted-foreground/70">
+            {" "}
+            · {toolCount} {toolCount === 1 ? "tool" : "tools"}
+          </span>
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open ? (
+        <div className="mt-1.5">
+          <ToolActivityList tools={tools} />
         </div>
       ) : null}
     </div>
@@ -733,29 +827,13 @@ export function AskPage() {
       ? formatWorkDuration(Math.max(0, endedAt - startedAt))
       : formatWorkDuration(0);
 
-    const hasBody =
-      Boolean(message.content.trim()) ||
-      Boolean(message.error) ||
-      showThinking ||
-      (isLive && hasTools);
-
     return (
-      <div className="flex w-full max-w-[92%] flex-col gap-2">
+      <div className="flex w-full max-w-[92%] flex-col gap-3">
         {showWorkSummary ? (
           <WorkedForDetails durationLabel={durationLabel} tools={tools} />
         ) : null}
 
-        {showWorkSummary && hasBody ? (
-          <div className="border-t border-border" />
-        ) : null}
-
-        {isLive && hasTools ? (
-          <div className="flex flex-col gap-1.5">
-            {tools.map((tool) => (
-              <ToolCard key={tool.id} tool={tool} />
-            ))}
-          </div>
-        ) : null}
+        {isLive && hasTools ? <ToolActivityList tools={tools} /> : null}
 
         {showThinking ? (
           <p className="animate-thinking text-sm text-muted-foreground">

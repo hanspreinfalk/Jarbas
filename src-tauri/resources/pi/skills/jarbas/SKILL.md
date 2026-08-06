@@ -10,15 +10,35 @@ description: >-
 
 This is the Tauri Jarbas desktop app. Local state lives at `~/.jarbas`.
 
+Capture today is **screen + accessibility**. There is **no audio access** yet.
+For spoken/meeting context the user needs a separate source such as Granola.
+
 ## Paths
 
 | Path | Purpose |
 |---|---|
 | `~/.jarbas` | App data root |
+| `~/.jarbas/db.sqlite` | Paired screen + accessibility capture DB |
+| `~/.jarbas/data/` | Capture JPEG snapshots |
+| `~/.jarbas/*.mp4` | Screen recording sessions (no audio track) |
 | `~/.jarbas/pi-agent` | Bundled Pi coding agent install |
 | `~/.jarbas/pi-config` | Pi settings, skills, APPEND_SYSTEM |
 | `~/.jarbas/pi-sessions` | Pi session files |
 | `~/.jarbas/npm-cache` | npm cache used by the installer |
+
+## Dates
+
+Capture timestamps are often stored in UTC. Always convert to the user's current
+local timezone (from the prompt context line) before displaying. Never show raw
+ISO-8601 or a trailing `UTC`.
+
+## Audio framing
+
+Do not say "no captured audio" as if recording failed. Say we do not have access
+to audio yet, and that connecting Granola (or similar) is how to get transcripts
+/ spoken context.
+
+Never mention Screenpipe or other internal capture vendor/SDK names to the user.
 
 ## Rules
 

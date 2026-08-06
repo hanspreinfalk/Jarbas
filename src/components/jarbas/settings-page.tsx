@@ -28,6 +28,12 @@ import {
   type PiAgentInfo,
   type PiAgentStatus,
 } from "@/lib/pi-agent";
+import {
+  formatBytes,
+  formatFrameCount,
+  getCaptureStorageStats,
+  type CaptureStorageStats,
+} from "@/lib/screenpipe";
 import { cn } from "@/lib/utils";
 
 const PERMISSIONS = [
@@ -209,8 +215,25 @@ function ApiKeyRow({
 export function SettingsPage() {
   const [piInfo, setPiInfo] = useState<PiAgentInfo | null>(null);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
+  const [storage, setStorage] = useState<CaptureStorageStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [savingProvider, setSavingProvider] = useState<LlmProvider | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void getCaptureStorageStats()
+      .then((stats) => {
+        if (!cancelled) setStorage(stats);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStorage({ root: "~/.jarbas", bytes: 0, frames: 0 });
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -437,13 +460,13 @@ export function SettingsPage() {
             <div className="bg-card px-4 py-4">
               <p className="label-caps text-muted-foreground">Size</p>
               <p className="mt-1 font-display text-2xl tracking-tight text-foreground">
-                5.24GB
+                {storage ? formatBytes(storage.bytes) : "—"}
               </p>
             </div>
             <div className="bg-card px-4 py-4">
               <p className="label-caps text-muted-foreground">Frames</p>
               <p className="mt-1 font-display text-2xl tracking-tight text-foreground">
-                11,060
+                {storage ? formatFrameCount(storage.frames) : "—"}
               </p>
             </div>
           </div>

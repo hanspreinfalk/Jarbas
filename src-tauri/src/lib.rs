@@ -2,6 +2,7 @@ mod llm_settings;
 mod paths;
 mod pi_agent;
 mod pi_chat;
+mod screenpipe;
 
 use serde::Serialize;
 use serde_json::Value;
@@ -130,6 +131,9 @@ pub fn run() {
         .manage(pi_agent::PiAgentState::default())
         .manage(pi_chat::AskChatState::default())
         .setup(|app| {
+            screenpipe::init_host(app).map_err(|error| {
+                Box::<dyn std::error::Error>::from(error)
+            })?;
             pi_agent::spawn_ensure_installed(app.handle().clone(), false);
             Ok(())
         })
@@ -146,6 +150,18 @@ pub fn run() {
             pi_chat::ask_send_prompt,
             pi_chat::ask_abort,
             pi_chat::ask_new_session,
+            screenpipe::screenpipe_default_paths,
+            screenpipe::screenpipe_permissions,
+            screenpipe::screenpipe_start,
+            screenpipe::screenpipe_stop,
+            screenpipe::screenpipe_status,
+            screenpipe::screenpipe_snapshot,
+            screenpipe::screenpipe_reveal,
+            screenpipe::screenpipe_dispose,
+            screenpipe::screenpipe_events,
+            screenpipe::screenpipe_identify,
+            screenpipe::capture_last_session,
+            screenpipe::capture_storage_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

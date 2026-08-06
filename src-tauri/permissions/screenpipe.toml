@@ -1,0 +1,59 @@
+[[permission]]
+identifier = "allow-screenpipe-default-paths"
+description = "Allows reading Screenpipe capture paths under ~/.jarbas."
+commands.allow = ["screenpipe_default_paths"]
+
+[[permission]]
+identifier = "allow-screenpipe-permissions"
+description = "Allows checking Screen Recording and Accessibility permissions via Screenpipe."
+commands.allow = ["screenpipe_permissions"]
+
+[[permission]]
+identifier = "allow-screenpipe-start"
+description = "Allows starting Screenpipe screen + accessibility capture into ~/.jarbas."
+commands.allow = ["screenpipe_start"]
+
+[[permission]]
+identifier = "allow-screenpipe-stop"
+description = "Allows stopping Screenpipe capture."
+commands.allow = ["screenpipe_stop"]
+
+[[permission]]
+identifier = "allow-screenpipe-status"
+description = "Allows reading Screenpipe recording status."
+commands.allow = ["screenpipe_status"]
+
+[[permission]]
+identifier = "allow-screenpipe-snapshot"
+description = "Allows taking a Screenpipe JPEG snapshot."
+commands.allow = ["screenpipe_snapshot"]
+
+[[permission]]
+identifier = "allow-screenpipe-reveal"
+description = "Allows revealing a Screenpipe capture path in Finder."
+commands.allow = ["screenpipe_reveal"]
+
+[[permission]]
+identifier = "allow-screenpipe-dispose"
+description = "Allows disposing the Screenpipe bridge process."
+commands.allow = ["screenpipe_dispose"]
+
+[[permission]]
+identifier = "allow-screenpipe-events"
+description = "Allows listing Screenpipe session event names."
+commands.allow = ["screenpipe_events"]
+
+[[permission]]
+identifier = "allow-screenpipe-identify"
+description = "Allows Screenpipe telemetry identity handshake (no-op when telemetry is off)."
+commands.allow = ["screenpipe_identify"]
+
+[[permission]]
+identifier = "allow-capture-last-session"
+description = "Allows reading the most recent capture session summary from ~/.jarbas."
+commands.allow = ["capture_last_session"]
+
+[[permission]]
+identifier = "allow-capture-storage-stats"
+description = "Allows reading ~/.jarbas disk usage and frame count."
+commands.allow = ["capture_storage_stats"]

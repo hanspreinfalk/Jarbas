@@ -62,6 +62,11 @@ impl JarbasPaths {
         Self::root().join("llm.json")
     }
 
+    /// Screenpipe MP4 output + paired accessibility SQLite (`db.sqlite`, `data/`).
+    pub fn capture_dir() -> PathBuf {
+        Self::root()
+    }
+
     pub fn ensure_directories() -> Result<(), String> {
         for dir in [
             Self::root(),
@@ -71,6 +76,7 @@ impl JarbasPaths {
             Self::npm_cache(),
             Self::skills_dir(),
             Self::jarbas_skill_dir(),
+            Self::capture_dir(),
         ] {
             std::fs::create_dir_all(&dir)
                 .map_err(|error| format!("Could not create {}: {error}", dir.display()))?;

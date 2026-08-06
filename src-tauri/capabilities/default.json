@@ -16,6 +16,18 @@
     "allow-set-llm-model",
     "allow-ask-send-prompt",
     "allow-ask-abort",
-    "allow-ask-new-session"
+    "allow-ask-new-session",
+    "allow-screenpipe-default-paths",
+    "allow-screenpipe-permissions",
+    "allow-screenpipe-start",
+    "allow-screenpipe-stop",
+    "allow-screenpipe-status",
+    "allow-screenpipe-snapshot",
+    "allow-screenpipe-reveal",
+    "allow-screenpipe-dispose",
+    "allow-screenpipe-events",
+    "allow-screenpipe-identify",
+    "allow-capture-last-session",
+    "allow-capture-storage-stats"
   ]
 }

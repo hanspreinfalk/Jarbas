@@ -1,5 +1,11 @@
 import { useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowLeft, CalendarDays, Download, LoaderCircle } from "lucide-react";
+import {
+  ArrowLeft,
+  CalendarDays,
+  Download,
+  LoaderCircle,
+  Sparkles,
+} from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -19,9 +25,121 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { exportReportPdf } from "@/lib/export-report-pdf";
-import { MOCK_REPORTS, type WorkReport } from "@/lib/mock-reports";
+import {
+  buildReportForRange,
+  MOCK_REPORTS,
+  type WorkReport,
+} from "@/lib/mock-reports";
 import { cn } from "@/lib/utils";
+
+function toInputDate(date: Date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function startOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date: Date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function startOfWeek(date: Date) {
+  const next = startOfDay(date);
+  const day = next.getDay();
+  const diff = day === 0 ? 6 : day - 1;
+  next.setDate(next.getDate() - diff);
+  return next;
+}
+
+type RangePreset = {
+  id: string;
+  label: string;
+  getRange: () => { start: Date; end: Date };
+};
+
+const PRESETS: RangePreset[] = [
+  {
+    id: "today",
+    label: "Today",
+    getRange: () => {
+      const today = new Date();
+      return { start: startOfDay(today), end: endOfDay(today) };
+    },
+  },
+  {
+    id: "yesterday",
+    label: "Yesterday",
+    getRange: () => {
+      const day = new Date();
+      day.setDate(day.getDate() - 1);
+      return { start: startOfDay(day), end: endOfDay(day) };
+    },
+  },
+  {
+    id: "yesterday-today",
+    label: "Yesterday + today",
+    getRange: () => {
+      const today = new Date();
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      return { start: startOfDay(yesterday), end: endOfDay(today) };
+    },
+  },
+  {
+    id: "last-7",
+    label: "Last 7 days",
+    getRange: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 6);
+      return { start: startOfDay(start), end: endOfDay(end) };
+    },
+  },
+  {
+    id: "last-week",
+    label: "Last week",
+    getRange: () => {
+      const thisWeekStart = startOfWeek(new Date());
+      const lastWeekEnd = new Date(thisWeekStart);
+      lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
+      const lastWeekStart = startOfWeek(lastWeekEnd);
+      return { start: lastWeekStart, end: endOfDay(lastWeekEnd) };
+    },
+  },
+  {
+    id: "this-month",
+    label: "This month",
+    getRange: () => {
+      const now = new Date();
+      const start = new Date(now.getFullYear(), now.getMonth(), 1);
+      return { start: startOfDay(start), end: endOfDay(now) };
+    },
+  },
+];
+
+function formatRangeLabel(start: string, end: string) {
+  if (!start || !end) return "Choose a range";
+  if (start === end) return start;
+  return `${start} → ${end}`;
+}
 
 const mixConfig = {
   deepWork: { label: "Deep work", color: "#080870" },
@@ -550,8 +668,46 @@ function ReportDetail({
 }
 
 export function ReportsPage() {
+  const [reports, setReports] = useState<WorkReport[]>(() => [...MOCK_REPORTS]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const selected = MOCK_REPORTS.find((report) => report.id === selectedId);
+  const [open, setOpen] = useState(false);
+  const [presetId, setPresetId] = useState<string | "custom">("today");
+  const [startDate, setStartDate] = useState(() => toInputDate(new Date()));
+  const [endDate, setEndDate] = useState(() => toInputDate(new Date()));
+  const [generating, setGenerating] = useState(false);
+  const [status, setStatus] = useState<string | null>(null);
+
+  const selected = reports.find((report) => report.id === selectedId);
+
+  const rangeValid = useMemo(() => {
+    if (!startDate || !endDate) return false;
+    return startDate <= endDate;
+  }, [startDate, endDate]);
+
+  function applyPreset(preset: RangePreset) {
+    const { start, end } = preset.getRange();
+    setPresetId(preset.id);
+    setStartDate(toInputDate(start));
+    setEndDate(toInputDate(end));
+  }
+
+  function openGenerate() {
+    applyPreset(PRESETS[0]);
+    setStatus(null);
+    setOpen(true);
+  }
+
+  async function generateReport() {
+    if (!rangeValid) return;
+    setGenerating(true);
+    setStatus(null);
+    await new Promise((resolve) => window.setTimeout(resolve, 700));
+    const report = buildReportForRange(startDate, endDate);
+    setReports((current) => [report, ...current]);
+    setGenerating(false);
+    setOpen(false);
+    setSelectedId(report.id);
+  }
 
   if (selected) {
     return (
@@ -561,16 +717,28 @@ export function ReportsPage() {
 
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <p className="label-caps text-muted-foreground">Jarbas</p>
-      <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-        Reports
-      </h1>
-      <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Cycle summaries of how work happened.
-      </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div className="min-w-0">
+          <p className="label-caps text-muted-foreground">Jarbas</p>
+          <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
+            Reports
+          </h1>
+          <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+            Cycle summaries of how work happened.
+          </p>
+        </div>
+        <Button
+          type="button"
+          className="shrink-0 rounded-none"
+          onClick={openGenerate}
+        >
+          <Sparkles className="size-3.5" />
+          Generate report
+        </Button>
+      </div>
 
       <ul className="mt-10 divide-y divide-border border border-border bg-card">
-        {MOCK_REPORTS.map((report, index) => (
+        {reports.map((report, index) => (
           <li key={report.id}>
             <button
               type="button"
@@ -596,6 +764,105 @@ export function ReportsPage() {
           </li>
         ))}
       </ul>
+
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="rounded-none sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Generate report</DialogTitle>
+            <DialogDescription>
+              Choose a timeframe from suggestions or set custom dates.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5">
+            <div>
+              <p className="label-caps text-muted-foreground">Suggestions</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={cn(
+                      "border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                      presetId === preset.id
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border bg-background text-foreground hover:bg-muted",
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <p className="label-caps text-muted-foreground">Custom range</p>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Start</span>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(event) => {
+                      setPresetId("custom");
+                      setStartDate(event.target.value);
+                    }}
+                    className="rounded-none"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">End</span>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(event) => {
+                      setPresetId("custom");
+                      setEndDate(event.target.value);
+                    }}
+                    className="rounded-none"
+                  />
+                </label>
+              </div>
+              {!rangeValid ? (
+                <p className="mt-2 text-xs text-destructive">
+                  End date must be on or after start date.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Selected · {formatRangeLabel(startDate, endDate)}
+                </p>
+              )}
+            </div>
+
+            {status ? (
+              <p className="border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                {status}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              onClick={() => setOpen(false)}
+            >
+              Close
+            </Button>
+            <Button
+              type="button"
+              className="rounded-none"
+              disabled={!rangeValid || generating}
+              onClick={() => void generateReport()}
+            >
+              <Sparkles className="size-3.5" />
+              {generating ? "Generating…" : "Generate report"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

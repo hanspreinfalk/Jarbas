@@ -550,3 +550,69 @@ export const MOCK_REPORTS: WorkReport[] = [
     ],
   },
 ];
+
+function parseInputDate(value: string): Date {
+  const [year, month, day] = value.split("-").map(Number);
+  return new Date(year, (month || 1) - 1, day || 1);
+}
+
+function formatDay(date: Date, opts: Intl.DateTimeFormatOptions) {
+  return date.toLocaleDateString(undefined, opts);
+}
+
+/** Human period label from `YYYY-MM-DD` inputs (local). */
+export function formatReportPeriod(startDate: string, endDate: string): string {
+  const start = parseInputDate(startDate);
+  const end = parseInputDate(endDate);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) {
+    return startDate === endDate ? startDate : `${startDate} – ${endDate}`;
+  }
+
+  if (startDate === endDate) {
+    return formatDay(start, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const startLabel = formatDay(start, {
+    month: "short",
+    day: "numeric",
+    ...(sameYear ? {} : { year: "numeric" as const }),
+  });
+  const endLabel = formatDay(end, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  return `${startLabel} – ${endLabel}`;
+}
+
+/** Placeholder generated report for a chosen timeframe (uses demo structure). */
+export function buildReportForRange(
+  startDate: string,
+  endDate: string,
+): WorkReport {
+  const template = MOCK_REPORTS[0];
+  const period = formatReportPeriod(startDate, endDate);
+  const generatedAt = formatDay(new Date(), {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+  const id = `generated-${startDate}-${endDate}-${Date.now()}`;
+
+  return {
+    ...structuredClone(template),
+    id,
+    title: startDate === endDate ? `Work report · ${period}` : `Work report`,
+    subtitle: "Generated from selected timeframe",
+    period,
+    generatedAt,
+    headline: `Summary for ${period}: capture-backed rhythm report ready to review.`,
+    executiveBrief: `This report covers ${period}. It uses the current report structure as a placeholder while live generation from your captured work is wired in. Review the sections below, then regenerate once capture coverage for the range is complete.`,
+    keyInsight: `Timeframe locked to ${period}. Next pass should pull screen + accessibility evidence from ~/.jarbas for this window.`,
+  };
+}

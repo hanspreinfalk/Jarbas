@@ -80,14 +80,14 @@ impl Default for AskChatState {
 fn tool_label(name: &str) -> String {
     let base = name.split("__").last().unwrap_or(name);
     match base {
-        "bash" => "Running a command".into(),
-        "read" => "Reading a file".into(),
-        "write" => "Writing a file".into(),
-        "edit" => "Editing a file".into(),
-        "grep" => "Searching files".into(),
-        "find" => "Finding files".into(),
-        "ls" => "Listing files".into(),
-        other => format!("Using {other}"),
+        "bash" | "shell" | "run_terminal_cmd" => "bash".into(),
+        "read" | "read_file" => "read".into(),
+        "write" | "write_file" => "write".into(),
+        "edit" | "apply_patch" => "edit".into(),
+        "grep" | "rg" | "search" => "search".into(),
+        "find" | "glob" => "find".into(),
+        "ls" => "ls".into(),
+        other => other.replace('-', " ").replace('_', " "),
     }
 }
 
@@ -505,18 +505,43 @@ fn send_command(
 }
 
 #[tauri::command]
-pub fn ask_send_prompt(app: AppHandle, message: String) -> Result<(), String> {
+pub fn ask_send_prompt(
+    app: AppHandle,
+    message: String,
+    time_zone: Option<String>,
+    local_time: Option<String>,
+) -> Result<(), String> {
     let trimmed = message.trim().to_string();
     if trimmed.is_empty() {
         return Err("Message is empty.".into());
     }
+
+    let prompt = match (
+        time_zone
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+        local_time
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty()),
+    ) {
+        (Some(tz), Some(local)) => format!(
+            "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user.]\n\n{trimmed}"
+        ),
+        (Some(tz), None) => format!(
+            "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user.]\n\n{trimmed}"
+        ),
+        _ => trimmed,
+    };
+
     let state = app.state::<AskChatState>();
     ensure_process(&app, &state)?;
     send_command(
         &state,
         json!({
             "type": "prompt",
-            "message": trimmed,
+            "message": prompt,
         }),
         Duration::from_secs(30),
     )?;
