@@ -61,6 +61,7 @@ fn composio_api_key() -> Result<String, String> {
 async fn list_composio_toolkits(
     cursor: Option<String>,
     limit: Option<u32>,
+    search: Option<String>,
 ) -> Result<ToolkitListResponse, String> {
     let api_key = composio_api_key()?;
     let page_size = limit.unwrap_or(24).clamp(1, 100);
@@ -76,6 +77,10 @@ async fn list_composio_toolkits(
 
     if let Some(cursor) = cursor.filter(|value| !value.is_empty()) {
         request = request.query(&[("cursor", cursor)]);
+    }
+
+    if let Some(search) = search.filter(|value| !value.trim().is_empty()) {
+        request = request.query(&[("search", search.trim())]);
     }
 
     let response = request.send().await.map_err(|error| error.to_string())?;

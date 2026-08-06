@@ -1,5 +1,5 @@
-import { useMemo, useState, type ReactNode } from "react";
-import { ArrowLeft, CalendarDays } from "lucide-react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
+import { ArrowLeft, CalendarDays, Download, LoaderCircle } from "lucide-react";
 import {
   Area,
   AreaChart,
@@ -19,6 +19,7 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { exportReportPdf } from "@/lib/export-report-pdf";
 import { MOCK_REPORTS, type WorkReport } from "@/lib/mock-reports";
 import { cn } from "@/lib/utils";
 
@@ -82,6 +83,9 @@ function ReportDetail({
   report: WorkReport;
   onBack: () => void;
 }) {
+  const reportRef = useRef<HTMLDivElement | null>(null);
+  const [exporting, setExporting] = useState(false);
+
   const repeatChart = useMemo(
     () =>
       report.repetitiveWork.map((item) => ({
@@ -102,21 +106,52 @@ function ReportDetail({
     fill: item.fill,
   }));
 
+  async function handleExportPdf() {
+    if (!reportRef.current || exporting) return;
+    setExporting(true);
+    try {
+      await exportReportPdf(
+        reportRef.current,
+        `${report.title}-${report.period}`,
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:max-w-4xl lg:px-8">
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onBack}
-        className="-ml-2 rounded-none text-muted-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        All reports
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          className="-ml-2 rounded-none text-muted-foreground"
+        >
+          <ArrowLeft className="size-3.5" />
+          All reports
+        </Button>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="rounded-none"
+          disabled={exporting}
+          onClick={() => void handleExportPdf()}
+        >
+          {exporting ? (
+            <LoaderCircle className="size-3.5 animate-spin" />
+          ) : (
+            <Download className="size-3.5" />
+          )}
+          {exporting ? "Exporting…" : "Export PDF"}
+        </Button>
+      </div>
 
+      <div ref={reportRef} className="bg-background pt-4">
       {/* Header */}
-      <header className="mt-4 border-b border-border pb-6">
+      <header className="pb-2">
         <p className="label-caps text-muted-foreground">{report.period}</p>
         <h1 className="mt-1 font-display text-2xl tracking-tight text-foreground sm:text-3xl lg:text-4xl">
           {report.title}
@@ -509,6 +544,7 @@ function ReportDetail({
           </table>
         </div>
       </Section>
+      </div>
     </div>
   );
 }
@@ -530,8 +566,7 @@ export function ReportsPage() {
         Reports
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Cycle summaries of how work happened, what repeated, and what to unlock
-        next.
+        Cycle summaries of how work happened.
       </p>
 
       <ul className="mt-10 divide-y divide-border border border-border bg-card">

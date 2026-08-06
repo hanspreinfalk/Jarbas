@@ -11,7 +11,10 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { MOCK_LEARNINGS, type Learning } from "@/lib/mock-learnings";
+import {
+  MOCK_OPPORTUNITIES,
+  type Opportunity,
+} from "@/lib/mock-opportunities";
 import { cn } from "@/lib/utils";
 
 function toInputDate(date: Date) {
@@ -113,11 +116,11 @@ function formatRangeLabel(start: string, end: string) {
   return `${start} → ${end}`;
 }
 
-function LearningDetail({
-  learning,
+function OpportunityDetail({
+  opportunity,
   onBack,
 }: {
-  learning: Learning;
+  opportunity: Opportunity;
   onBack: () => void;
 }) {
   return (
@@ -130,56 +133,81 @@ function LearningDetail({
         className="-ml-2 rounded-none text-muted-foreground"
       >
         <ArrowLeft className="size-3.5" />
-        All learnings
+        All opportunities
       </Button>
 
       <header className="mt-4 border-b border-border pb-6">
         <div className="flex flex-wrap items-center gap-2">
           <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {learning.category}
+            {opportunity.category}
           </span>
           <span className="text-xs text-muted-foreground">
-            {learning.frequency}
+            {opportunity.horizon}
           </span>
           <span className="text-xs text-muted-foreground">
-            Confidence {learning.confidence}
+            Impact {opportunity.impact}
+          </span>
+          <span className="text-xs text-muted-foreground">
+            Effort {opportunity.effort}
           </span>
         </div>
         <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
-          {learning.title}
+          {opportunity.title}
         </h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-          First seen {learning.firstSeen} · Last seen {learning.lastSeen}
+        <p className="mt-3 text-sm text-muted-foreground">
+          Owner {opportunity.owner} · Saves {opportunity.hoursSavedPerCycle}
         </p>
       </header>
 
       <section className="mt-8 space-y-3">
-        <h2 className="label-caps text-muted-foreground">Observed</h2>
+        <h2 className="label-caps text-muted-foreground">Signal</h2>
         <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-          {learning.observed}
+          {opportunity.signal}
         </p>
       </section>
 
       <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Insight</h2>
+        <h2 className="label-caps text-muted-foreground">Unlock</h2>
         <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-          {learning.insight}
+          {opportunity.unlock}
         </p>
       </section>
 
       <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Repeatable steps</h2>
+        <h2 className="label-caps text-muted-foreground">Why now</h2>
+        <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
+          {opportunity.whyNow}
+        </p>
+      </section>
+
+      <section className="mt-8 space-y-3 border-t border-border pt-8">
+        <h2 className="label-caps text-muted-foreground">Delivery plan</h2>
         <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-foreground">
-          {learning.steps.map((step) => (
+          {opportunity.deliveryPlan.map((step) => (
             <li key={step}>{step}</li>
           ))}
         </ol>
       </section>
 
+      <section className="mt-8 grid gap-6 border-t border-border pt-8 sm:grid-cols-2">
+        <div className="space-y-2">
+          <h2 className="label-caps text-muted-foreground">Success metric</h2>
+          <p className="text-sm leading-relaxed text-foreground">
+            {opportunity.successMetric}
+          </p>
+        </div>
+        <div className="space-y-2">
+          <h2 className="label-caps text-muted-foreground">Related learning</h2>
+          <p className="text-sm leading-relaxed text-foreground">
+            {opportunity.relatedLearning}
+          </p>
+        </div>
+      </section>
+
       <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Evidence</h2>
+        <h2 className="label-caps text-muted-foreground">Prerequisites</h2>
         <ul className="space-y-2 text-sm leading-relaxed text-foreground">
-          {learning.evidence.map((item) => (
+          {opportunity.prerequisites.map((item) => (
             <li key={item} className="border border-border bg-card px-3 py-2">
               {item}
             </li>
@@ -187,37 +215,26 @@ function LearningDetail({
         </ul>
       </section>
 
-      <section className="mt-8 grid gap-6 border-t border-border pt-8 sm:grid-cols-2">
-        <div className="space-y-2">
-          <h2 className="label-caps text-muted-foreground">Time pattern</h2>
-          <p className="text-sm leading-relaxed text-foreground">
-            {learning.timePattern}
-          </p>
-        </div>
-        <div className="space-y-2">
-          <h2 className="label-caps text-muted-foreground">Related opportunity</h2>
-          <p className="text-sm leading-relaxed text-foreground">
-            {learning.relatedOpportunity}
-          </p>
-        </div>
-      </section>
-
       <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Next action</h2>
-        <p className="border border-border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-foreground">
-          {learning.nextAction}
-        </p>
+        <h2 className="label-caps text-muted-foreground">Risks</h2>
+        <ul className="space-y-2 text-sm leading-relaxed text-foreground">
+          {opportunity.risks.map((item) => (
+            <li key={item} className="border border-border bg-card px-3 py-2">
+              {item}
+            </li>
+          ))}
+        </ul>
       </section>
 
       <section className="mt-8 space-y-3 border-t border-border pt-8">
         <h2 className="label-caps text-muted-foreground">Apps</h2>
-        <AppBadgeList apps={learning.apps} />
+        <AppBadgeList apps={opportunity.apps} />
       </section>
     </div>
   );
 }
 
-export function LearningsPage() {
+export function OpportunitiesPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [presetId, setPresetId] = useState<string | "custom">("today");
@@ -226,7 +243,9 @@ export function LearningsPage() {
   const [capturing, setCapturing] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
 
-  const selected = MOCK_LEARNINGS.find((learning) => learning.id === selectedId);
+  const selected = MOCK_OPPORTUNITIES.find(
+    (opportunity) => opportunity.id === selectedId,
+  );
 
   const rangeValid = useMemo(() => {
     if (!startDate || !endDate) return false;
@@ -246,19 +265,21 @@ export function LearningsPage() {
     setOpen(true);
   }
 
-  async function captureLearnings() {
+  async function captureOpportunities() {
     if (!rangeValid) return;
     setCapturing(true);
     setStatus(null);
     await new Promise((resolve) => window.setTimeout(resolve, 900));
     setCapturing(false);
-    setStatus(`Captured learnings for ${formatRangeLabel(startDate, endDate)}.`);
+    setStatus(
+      `Captured opportunities for ${formatRangeLabel(startDate, endDate)}.`,
+    );
   }
 
   if (selected) {
     return (
-      <LearningDetail
-        learning={selected}
+      <OpportunityDetail
+        opportunity={selected}
         onBack={() => setSelectedId(null)}
       />
     );
@@ -270,10 +291,10 @@ export function LearningsPage() {
         <div className="min-w-0">
           <p className="label-caps text-muted-foreground">Jarbas</p>
           <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-            Learnings
+            Opportunities
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-            How you work - apps, rituals, and repeatable flows.
+            Fast delivery unlocks ready to review.
           </p>
         </div>
         <Button
@@ -282,39 +303,45 @@ export function LearningsPage() {
           onClick={openCapture}
         >
           <Sparkles className="size-3.5" />
-          Capture learnings
+          Capture opportunities
         </Button>
       </div>
 
       <ul className="mt-10 divide-y divide-border border border-border bg-card">
-        {MOCK_LEARNINGS.map((learning, index) => (
-          <li key={learning.id}>
+        {MOCK_OPPORTUNITIES.map((opportunity, index) => (
+          <li key={opportunity.id}>
             <button
               type="button"
-              onClick={() => setSelectedId(learning.id)}
+              onClick={() => setSelectedId(opportunity.id)}
               className="animate-rise w-full px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5"
               style={{ animationDelay: `${index * 50}ms` }}
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {learning.category}
+                  {opportunity.category}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {learning.frequency}
+                  {opportunity.horizon}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Impact {opportunity.impact}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  Effort {opportunity.effort}
                 </span>
               </div>
               <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
-                {learning.title}
+                {opportunity.title}
               </h2>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">Observed · </span>
-                {learning.observed}
+                <span className="font-medium text-foreground">Signal · </span>
+                {opportunity.signal}
               </p>
               <p className="mt-2 text-sm leading-relaxed text-foreground/90">
-                <span className="font-medium">Insight · </span>
-                {learning.insight}
+                <span className="font-medium">Unlock · </span>
+                {opportunity.unlock}
               </p>
-              <AppBadgeList apps={learning.apps} className="mt-3" />
+              <AppBadgeList apps={opportunity.apps} className="mt-3" />
             </button>
           </li>
         ))}
@@ -323,7 +350,7 @@ export function LearningsPage() {
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="rounded-none sm:max-w-lg">
           <DialogHeader>
-            <DialogTitle>Capture learnings</DialogTitle>
+            <DialogTitle>Capture opportunities</DialogTitle>
             <DialogDescription>
               Choose a timeframe from suggestions or set custom dates.
             </DialogDescription>
@@ -410,10 +437,10 @@ export function LearningsPage() {
               type="button"
               className="rounded-none"
               disabled={!rangeValid || capturing}
-              onClick={() => void captureLearnings()}
+              onClick={() => void captureOpportunities()}
             >
               <Sparkles className="size-3.5" />
-              {capturing ? "Capturing…" : "Capture learnings"}
+              {capturing ? "Capturing…" : "Capture opportunities"}
             </Button>
           </DialogFooter>
         </DialogContent>

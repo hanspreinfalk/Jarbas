@@ -43,7 +43,7 @@ export function RecordingPage() {
         Recording / Ask
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Record how you work. Jarbas learns your workflows and apps.
+        Record how you work.
       </p>
 
       <section className="mt-10 border border-border bg-card">
@@ -78,12 +78,6 @@ export function RecordingPage() {
           <p className="font-display text-5xl tracking-tight tabular-nums text-foreground sm:text-6xl">
             {formatElapsed(elapsed)}
           </p>
-          {recording ? (
-            <p className="mt-3 max-w-sm text-center text-sm text-muted-foreground">
-              Screen and work context are being captured. Keep working as usual.
-            </p>
-          ) : null}
-
           <div className="mt-8 flex w-full max-w-md flex-col gap-3 sm:flex-row sm:justify-center">
             {!recording ? (
               <Button

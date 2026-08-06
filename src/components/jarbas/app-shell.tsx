@@ -1,13 +1,5 @@
-import { useState, type ComponentType, type CSSProperties } from "react";
-import {
-  AudioLines,
-  BookOpen,
-  ChevronsUpDown,
-  FileBarChart,
-  Plug,
-  Settings,
-  Sparkles,
-} from "lucide-react";
+import { useState, type CSSProperties } from "react";
+import { ChevronsUpDown } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -22,84 +14,25 @@ import {
   SidebarProvider,
   SidebarTrigger,
 } from "@/components/ui/sidebar";
+import { AgentsPage } from "@/components/jarbas/agents-page";
+import { AppHeaderActions } from "@/components/jarbas/app-header-actions";
+import { AskPage } from "@/components/jarbas/ask-page";
 import { ConnectorsPage } from "@/components/jarbas/connectors-page";
 import { LearningsPage } from "@/components/jarbas/learnings-page";
+import { ObservabilityPage } from "@/components/jarbas/observability-page";
+import { OpportunitiesPage } from "@/components/jarbas/opportunities-page";
 import { RecordingPage } from "@/components/jarbas/recording-page";
 import { ReportsPage } from "@/components/jarbas/reports-page";
 import { SettingsPage } from "@/components/jarbas/settings-page";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { APP_TABS, type AppTabId } from "@/lib/app-tabs";
 import { cn } from "@/lib/utils";
 
-export type AppTabId =
-  | "recording"
-  | "learnings"
-  | "opportunities"
-  | "reports"
-  | "connectors"
-  | "settings";
-
-type AppTab = {
-  id: AppTabId;
-  label: string;
-  icon: ComponentType<{ className?: string }>;
-};
-
-const TABS: AppTab[] = [
-  {
-    id: "recording",
-    label: "Recording / Ask",
-    icon: AudioLines,
-  },
-  {
-    id: "connectors",
-    label: "Connectors",
-    icon: Plug,
-  },
-  {
-    id: "learnings",
-    label: "Learnings",
-    icon: BookOpen,
-  },
-  {
-    id: "opportunities",
-    label: "Opportunities",
-    icon: Sparkles,
-  },
-  {
-    id: "reports",
-    label: "Reports",
-    icon: FileBarChart,
-  },
-  {
-    id: "settings",
-    label: "Settings",
-    icon: Settings,
-  },
-];
-
-function PlaceholderPage({
-  title,
-  description,
-}: {
-  title: string;
-  description: string;
-}) {
-  return (
-    <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <p className="label-caps text-muted-foreground">Jarbas</p>
-      <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-        {title}
-      </h1>
-      <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        {description}
-      </p>
-    </div>
-  );
-}
+export type { AppTabId } from "@/lib/app-tabs";
 
 export function AppShell() {
   const [activeId, setActiveId] = useState<AppTabId>("recording");
-  const activeTab = TABS.find((tab) => tab.id === activeId) ?? TABS[0];
+  const activeTab = APP_TABS.find((tab) => tab.id === activeId) ?? APP_TABS[0];
 
   return (
     <TooltipProvider>
@@ -129,7 +62,7 @@ export function AppShell() {
             <SidebarGroup className="p-0">
               <SidebarGroupContent>
                 <SidebarMenu className="gap-0.5">
-                  {TABS.map((tab) => {
+                  {APP_TABS.map((tab) => {
                     const active = tab.id === activeId;
                     const Icon = tab.icon;
                     return (
@@ -189,24 +122,36 @@ export function AppShell() {
                 {activeTab.label}
               </p>
             </div>
+            <AppHeaderActions
+              activeId={activeId}
+              onNavigate={setActiveId}
+            />
           </header>
 
-          <div className="jarbas-chat-canvas flex min-h-0 flex-1 flex-col overflow-y-auto">
+          <div
+            className={cn(
+              "jarbas-chat-canvas flex min-h-0 flex-1 flex-col",
+              activeId === "ask" ? "overflow-hidden" : "overflow-y-auto",
+            )}
+          >
             {activeId === "recording" ? (
               <RecordingPage />
             ) : activeId === "learnings" ? (
               <LearningsPage />
+            ) : activeId === "opportunities" ? (
+              <OpportunitiesPage />
             ) : activeId === "reports" ? (
               <ReportsPage />
+            ) : activeId === "agents" ? (
+              <AgentsPage />
+            ) : activeId === "observability" ? (
+              <ObservabilityPage />
             ) : activeId === "connectors" ? (
               <ConnectorsPage />
-            ) : activeId === "settings" ? (
-              <SettingsPage />
+            ) : activeId === "ask" ? (
+              <AskPage />
             ) : (
-              <PlaceholderPage
-                title="Opportunities"
-                description="Fast delivery unlocks ready for review and deployment."
-              />
+              <SettingsPage />
             )}
           </div>
         </SidebarInset>
