@@ -17,6 +17,10 @@ dist-ssr
 .env.*
 !.env.example
 
+# Bundled Node runtime (fetched by `npm run fetch-node`)
+.cache/
+src-tauri/resources/nodejs/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

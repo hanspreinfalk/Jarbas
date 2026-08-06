@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-ask-send-prompt"
+description = "Allows sending a prompt to the Ask Pi agent session."
+commands.allow = ["ask_send_prompt"]
+
+[[permission]]
+identifier = "allow-ask-abort"
+description = "Allows aborting the current Ask agent turn."
+commands.allow = ["ask_abort"]
+
+[[permission]]
+identifier = "allow-ask-new-session"
+description = "Allows starting a fresh Ask agent session."
+commands.allow = ["ask_new_session"]

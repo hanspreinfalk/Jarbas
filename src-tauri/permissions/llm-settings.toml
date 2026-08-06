@@ -1,0 +1,19 @@
+[[permission]]
+identifier = "allow-get-llm-settings"
+description = "Allows reading Ask model preference and API key status from ~/.jarbas."
+commands.allow = ["get_llm_settings"]
+
+[[permission]]
+identifier = "allow-set-llm-api-key"
+description = "Allows saving an Ask provider API key under ~/.jarbas."
+commands.allow = ["set_llm_api_key"]
+
+[[permission]]
+identifier = "allow-clear-llm-api-key"
+description = "Allows clearing an Ask provider API key under ~/.jarbas."
+commands.allow = ["clear_llm_api_key"]
+
+[[permission]]
+identifier = "allow-set-llm-model"
+description = "Allows saving the Ask provider/model selection under ~/.jarbas."
+commands.allow = ["set_llm_model"]

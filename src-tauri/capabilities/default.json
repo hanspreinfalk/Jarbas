@@ -7,6 +7,15 @@
     "core:default",
     "opener:default",
     "allow-open-privacy-settings",
-    "allow-list-composio-toolkits"
+    "allow-list-composio-toolkits",
+    "allow-get-pi-agent-status",
+    "allow-ensure-pi-agent-installed",
+    "allow-get-llm-settings",
+    "allow-set-llm-api-key",
+    "allow-clear-llm-api-key",
+    "allow-set-llm-model",
+    "allow-ask-send-prompt",
+    "allow-ask-abort",
+    "allow-ask-new-session"
   ]
 }

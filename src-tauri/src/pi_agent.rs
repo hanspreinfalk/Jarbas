@@ -1,0 +1,470 @@
+use crate::paths::JarbasPaths;
+use serde::Serialize;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::sync::Mutex;
+use tauri::path::BaseDirectory;
+use tauri::{AppHandle, Emitter, Manager, State};
+
+pub const PI_PACKAGE_VERSION: &str = "0.83.0";
+pub const MCP_ADAPTER_VERSION: &str = "2.19.0";
+
+const APPEND_SYSTEM: &str = include_str!("../resources/pi/APPEND_SYSTEM.md");
+const JARBAS_SKILL: &str = include_str!("../resources/pi/skills/jarbas/SKILL.md");
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum PiAgentStatus {
+    Idle,
+    #[serde(rename_all = "camelCase")]
+    Installing { message: String },
+    Ready,
+    #[serde(rename_all = "camelCase")]
+    Failed { message: String },
+}
+
+pub struct PiAgentState {
+    inner: Mutex<PiAgentStatus>,
+}
+
+impl Default for PiAgentState {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::new(PiAgentStatus::Idle),
+        }
+    }
+}
+
+impl PiAgentState {
+    pub fn get(&self) -> PiAgentStatus {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
+
+    fn set(&self, status: PiAgentStatus) {
+        *self
+            .inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner()) = status;
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PiAgentInfo {
+    pub status: PiAgentStatus,
+    pub root: String,
+    pub pi_cli: String,
+    pub installed: bool,
+    pub node: Option<String>,
+}
+
+pub fn is_installed() -> bool {
+    JarbasPaths::pi_cli().is_file()
+}
+
+pub fn current_info(app: &AppHandle, state: &PiAgentState) -> PiAgentInfo {
+    let mut status = state.get();
+    if matches!(status, PiAgentStatus::Idle) && is_installed() {
+        status = PiAgentStatus::Ready;
+        state.set(status.clone());
+    }
+    PiAgentInfo {
+        status,
+        root: JarbasPaths::root().display().to_string(),
+        pi_cli: JarbasPaths::pi_cli().display().to_string(),
+        installed: is_installed(),
+        node: find_node(app).map(|path| path.display().to_string()),
+    }
+}
+
+pub fn spawn_ensure_installed(app: AppHandle, force: bool) {
+    {
+        let state = app.state::<PiAgentState>();
+        if matches!(state.get(), PiAgentStatus::Installing { .. }) {
+            return;
+        }
+        if !force && is_installed() {
+            if let Err(error) = write_config_files(&app) {
+                emit_status(&app, PiAgentStatus::Failed { message: error });
+                return;
+            }
+            sanitize_optional_native_addons();
+            emit_status(&app, PiAgentStatus::Ready);
+            return;
+        }
+    }
+
+    emit_status(
+        &app,
+        PiAgentStatus::Installing {
+            message: "Preparing…".into(),
+        },
+    );
+
+    std::thread::spawn(move || match run_install(&app, force) {
+        Ok(()) => emit_status(&app, PiAgentStatus::Ready),
+        Err(error) => {
+            if is_installed() {
+                let _ = write_config_files(&app);
+                sanitize_optional_native_addons();
+                emit_status(&app, PiAgentStatus::Ready);
+            } else {
+                emit_status(&app, PiAgentStatus::Failed { message: error });
+            }
+        }
+    });
+}
+
+fn emit_status(app: &AppHandle, status: PiAgentStatus) {
+    app.state::<PiAgentState>().set(status.clone());
+    let _ = app.emit("pi-agent-status", &status);
+}
+
+fn run_install(app: &AppHandle, force: bool) -> Result<(), String> {
+    JarbasPaths::ensure_directories()?;
+
+    if !force && is_installed() {
+        write_config_files(app)?;
+        sanitize_optional_native_addons();
+        return Ok(());
+    }
+
+    let node = find_node(app).ok_or_else(|| {
+        "Bundled Node runtime is missing from this build. Run `npm run fetch-node`, then rebuild Jarbas."
+            .to_string()
+    })?;
+    let npm = find_npm(app, &node)?;
+
+    emit_status(
+        app,
+        PiAgentStatus::Installing {
+            message: "Writing package manifests…".into(),
+        },
+    );
+    write_agent_package_json()?;
+    write_npmrc_files()?;
+    write_native_addon_stubs()?;
+    sanitize_optional_native_addons();
+
+    emit_status(
+        app,
+        PiAgentStatus::Installing {
+            message: "Installing Pi agent…".into(),
+        },
+    );
+    run_npm(
+        &node,
+        &npm,
+        &[
+            "install",
+            "--omit=dev",
+            "--omit=optional",
+            "--ignore-scripts",
+            "--no-fund",
+            "--no-audit",
+        ],
+        &JarbasPaths::pi_agent(),
+    )?;
+
+    sanitize_optional_native_addons();
+
+    emit_status(
+        app,
+        PiAgentStatus::Installing {
+            message: "Finishing…".into(),
+        },
+    );
+    write_config_files(app)?;
+
+    if !is_installed() {
+        return Err("Pi agent CLI missing after install.".into());
+    }
+    Ok(())
+}
+
+fn write_agent_package_json() -> Result<(), String> {
+    let json = serde_json::json!({
+        "name": "jarbas-pi-agent",
+        "private": true,
+        "dependencies": {
+            "@earendil-works/pi-coding-agent": PI_PACKAGE_VERSION,
+            "pi-mcp-adapter": MCP_ADAPTER_VERSION,
+        },
+        "overrides": {
+            "@mariozechner/clipboard": "file:jarbas-stubs/clipboard",
+            "@napi-rs/keyring": "file:jarbas-stubs/keyring",
+        },
+    });
+    write_pretty_json(&JarbasPaths::package_json(), &json)
+}
+
+fn write_npmrc_files() -> Result<(), String> {
+    let body = "\
+optional=false
+ignore-scripts=true
+fund=false
+audit=false
+update-notifier=false
+";
+    let path = JarbasPaths::pi_agent().join(".npmrc");
+    std::fs::write(&path, body)
+        .map_err(|error| format!("Could not write {}: {error}", path.display()))
+}
+
+fn write_native_addon_stubs() -> Result<(), String> {
+    let stubs = JarbasPaths::pi_agent().join("jarbas-stubs");
+    write_stub_package(
+        &stubs.join("clipboard"),
+        "@mariozechner/clipboard",
+        "Jarbas: native clipboard disabled",
+    )?;
+    write_stub_package(
+        &stubs.join("keyring"),
+        "@napi-rs/keyring",
+        "Jarbas: native keyring disabled",
+    )?;
+    Ok(())
+}
+
+fn write_stub_package(dir: &Path, name: &str, error_message: &str) -> Result<(), String> {
+    std::fs::create_dir_all(dir)
+        .map_err(|error| format!("Could not create {}: {error}", dir.display()))?;
+    let package = serde_json::json!({
+        "name": name,
+        "version": "0.0.0-jarbas-stub",
+        "main": "index.js",
+        "license": "UNLICENSED",
+    });
+    write_pretty_json(&dir.join("package.json"), &package)?;
+    let index = format!(
+        "// Jarbas stub - real NAPI binary intentionally omitted.\nthrow new Error({error_message:?});\n"
+    );
+    std::fs::write(dir.join("index.js"), index)
+        .map_err(|error| format!("Could not write stub index.js: {error}"))
+}
+
+fn write_config_files(app: &AppHandle) -> Result<(), String> {
+    JarbasPaths::ensure_directories()?;
+    std::fs::write(JarbasPaths::append_system(), APPEND_SYSTEM)
+        .map_err(|error| format!("Could not write APPEND_SYSTEM.md: {error}"))?;
+    std::fs::write(JarbasPaths::jarbas_skill_file(), JARBAS_SKILL)
+        .map_err(|error| format!("Could not write jarbas skill: {error}"))?;
+
+    let node = find_node(app)
+        .map(|path| path.display().to_string())
+        .unwrap_or_else(|| "bundled-node-missing".into());
+
+    // Standalone install: Pi tools (bash/read/…) only. MCP servers can be added later.
+    let mcp = serde_json::json!({
+        "settings": {
+            "directTools": true,
+            "toolPrefix": "none",
+        },
+        "mcpServers": {},
+        "note": format!("Bundled Node for future MCP bridges: {node}"),
+    });
+    write_pretty_json(&JarbasPaths::mcp_config(), &mcp)?;
+
+    let settings = serde_json::json!({
+        "packages": ["npm:pi-mcp-adapter"],
+        "skills": [JarbasPaths::jarbas_skill_dir().display().to_string()],
+        "enableSkillCommands": true,
+    });
+    write_pretty_json(&JarbasPaths::settings_config(), &settings)?;
+
+    let cache = JarbasPaths::pi_config().join("mcp-cache.json");
+    let _ = std::fs::remove_file(cache);
+    Ok(())
+}
+
+fn write_pretty_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    }
+    let body = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("Could not encode JSON for {}: {error}", path.display()))?;
+    std::fs::write(path, body + "\n")
+        .map_err(|error| format!("Could not write {}: {error}", path.display()))
+}
+
+/// Prefer the Node binary shipped inside the app bundle / resources tree.
+pub fn find_node(app: &AppHandle) -> Option<PathBuf> {
+    if let Ok(path) = app
+        .path()
+        .resolve("nodejs/bin/node", BaseDirectory::Resource)
+    {
+        if path.is_file() {
+            return Some(path);
+        }
+    }
+
+    // Dev fallback: resources live next to the Tauri crate before bundling.
+    let manifest_node = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/nodejs/bin/node");
+    manifest_node.is_file().then_some(manifest_node)
+}
+
+fn find_npm(app: &AppHandle, node: &Path) -> Result<PathBuf, String> {
+    if let Ok(path) = app
+        .path()
+        .resolve("nodejs/lib/node_modules/npm/bin/npm-cli.js", BaseDirectory::Resource)
+    {
+        if path.is_file() {
+            return Ok(path);
+        }
+    }
+
+    let bundled_cli = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("resources/nodejs/lib/node_modules/npm/bin/npm-cli.js");
+    if bundled_cli.is_file() {
+        return Ok(bundled_cli);
+    }
+
+    // Official Node layout: npm-cli.js next to ../lib from bin/node.
+    let beside = node
+        .parent() // bin
+        .and_then(|bin| bin.parent()) // nodejs
+        .map(|root| root.join("lib/node_modules/npm/bin/npm-cli.js"))
+        .filter(|path| path.is_file());
+    if let Some(path) = beside {
+        return Ok(path);
+    }
+
+    Err("Bundled npm-cli.js is missing. Run `npm run fetch-node`, then rebuild.".into())
+}
+
+fn run_npm(node: &Path, npm: &Path, args: &[&str], cwd: &Path) -> Result<(), String> {
+    let mut command = if npm.extension().and_then(|ext| ext.to_str()) == Some("js") {
+        let mut cmd = Command::new(node);
+        cmd.arg(npm);
+        cmd.args(args);
+        cmd
+    } else {
+        let mut cmd = Command::new(npm);
+        cmd.args(args);
+        cmd
+    };
+
+    let path = augmented_path(node);
+    command
+        .current_dir(cwd)
+        .env("npm_config_cache", JarbasPaths::npm_cache())
+        .env("npm_config_fund", "false")
+        .env("npm_config_audit", "false")
+        .env("npm_config_update_notifier", "false")
+        .env("npm_config_ignore_scripts", "true")
+        .env("npm_config_optional", "false")
+        .env("PATH", path);
+
+    let output = command
+        .output()
+        .map_err(|error| format!("Failed to run npm: {error}"))?;
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Err(summarize_npm_failure(output.status.code(), &stderr, &stdout))
+}
+
+fn augmented_path(node: &Path) -> String {
+    let existing = std::env::var("PATH").unwrap_or_default();
+    let mut parts: Vec<String> = existing
+        .split(':')
+        .filter(|part| !part.is_empty())
+        .map(str::to_string)
+        .collect();
+
+    if let Some(bin) = node.parent() {
+        let bin = bin.display().to_string();
+        if !parts.iter().any(|part| part == &bin) {
+            parts.insert(0, bin);
+        }
+    }
+
+    // Keep a minimal PATH for child processes (no system Node assumed).
+    for extra in ["/usr/bin", "/bin"] {
+        if !parts.iter().any(|part| part == extra) {
+            parts.push(extra.to_string());
+        }
+    }
+
+    parts.join(":")
+}
+
+fn summarize_npm_failure(status: Option<i32>, stderr: &str, stdout: &str) -> String {
+    let combined = format!("{stderr}\n{stdout}").trim().to_string();
+    if combined.is_empty() {
+        return format!("npm exited with status {}", status.unwrap_or(-1));
+    }
+    let lines: Vec<&str> = combined
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .collect();
+    let errors: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| line.starts_with("npm error") || line.starts_with("npm ERR!"))
+        .collect();
+    if !errors.is_empty() {
+        let start = errors.len().saturating_sub(4);
+        return errors[start..].join("\n");
+    }
+    let useful: Vec<&str> = lines
+        .into_iter()
+        .filter(|line| !line.starts_with("npm warn deprecated"))
+        .collect();
+    let start = useful.len().saturating_sub(6);
+    useful[start..].join("\n")
+}
+
+fn sanitize_optional_native_addons() {
+    let root = JarbasPaths::pi_agent();
+    let Ok(entries) = walkdir_files(&root) else {
+        return;
+    };
+    for path in entries {
+        if path.extension().and_then(|ext| ext.to_str()) == Some("node") {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+}
+
+fn walkdir_files(root: &Path) -> Result<Vec<PathBuf>, String> {
+    let mut files = Vec::new();
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(dir) = stack.pop() {
+        let read = std::fs::read_dir(&dir)
+            .map_err(|error| format!("Could not read {}: {error}", dir.display()))?;
+        for entry in read.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                files.push(path);
+            }
+        }
+    }
+    Ok(files)
+}
+
+#[tauri::command]
+pub fn get_pi_agent_status(app: AppHandle, state: State<'_, PiAgentState>) -> PiAgentInfo {
+    current_info(&app, &state)
+}
+
+#[tauri::command]
+pub fn ensure_pi_agent_installed(
+    app: AppHandle,
+    force: Option<bool>,
+) -> Result<PiAgentInfo, String> {
+    let state = app.state::<PiAgentState>();
+    spawn_ensure_installed(app.clone(), force.unwrap_or(false));
+    Ok(current_info(&app, &state))
+}

@@ -1,3 +1,8 @@
+mod llm_settings;
+mod paths;
+mod pi_agent;
+mod pi_chat;
+
 use serde::Serialize;
 use serde_json::Value;
 
@@ -122,10 +127,25 @@ pub fn run() {
     load_env();
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .manage(pi_agent::PiAgentState::default())
+        .manage(pi_chat::AskChatState::default())
+        .setup(|app| {
+            pi_agent::spawn_ensure_installed(app.handle().clone(), false);
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             greet,
             open_privacy_settings,
-            list_composio_toolkits
+            list_composio_toolkits,
+            pi_agent::get_pi_agent_status,
+            pi_agent::ensure_pi_agent_installed,
+            llm_settings::get_llm_settings,
+            llm_settings::set_llm_api_key,
+            llm_settings::clear_llm_api_key,
+            llm_settings::set_llm_model,
+            pi_chat::ask_send_prompt,
+            pi_chat::ask_abort,
+            pi_chat::ask_new_session,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

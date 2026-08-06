@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-get-pi-agent-status"
+description = "Allows reading Pi agent install status under ~/.jarbas."
+commands.allow = ["get_pi_agent_status"]
+
+[[permission]]
+identifier = "allow-ensure-pi-agent-installed"
+description = "Allows installing or reinstalling the Pi agent into ~/.jarbas."
+commands.allow = ["ensure_pi_agent_installed"]
