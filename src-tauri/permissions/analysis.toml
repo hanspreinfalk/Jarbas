@@ -1,0 +1,29 @@
+[[permission]]
+identifier = "allow-list-analysis-items"
+description = "Allows listing saved learnings, opportunities, or reports from ~/.jarbas."
+commands.allow = ["list_analysis_items"]
+
+[[permission]]
+identifier = "allow-delete-analysis-item"
+description = "Allows deleting a saved learning, opportunity, or report."
+commands.allow = ["delete_analysis_item"]
+
+[[permission]]
+identifier = "allow-update-analysis-item"
+description = "Allows updating a saved learning, opportunity, or report."
+commands.allow = ["update_analysis_item"]
+
+[[permission]]
+identifier = "allow-get-analysis-status"
+description = "Allows reading whether a background analysis job is running."
+commands.allow = ["get_analysis_status"]
+
+[[permission]]
+identifier = "allow-start-analysis"
+description = "Allows starting a background Pi analysis for learnings, opportunities, or reports."
+commands.allow = ["start_analysis"]
+
+[[permission]]
+identifier = "allow-abort-analysis"
+description = "Allows aborting the current background analysis job."
+commands.allow = ["abort_analysis"]

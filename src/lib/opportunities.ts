@@ -1,0 +1,26 @@
+export type Opportunity = {
+  id: string;
+  title: string;
+  category: string;
+  signal: string;
+  unlock: string;
+  impact: string;
+  effort: string;
+  horizon: string;
+  apps: string[];
+  whyNow: string;
+  successMetric: string;
+  owner: string;
+  relatedLearning: string;
+  hoursSavedPerCycle: string;
+  deliveryPlan: string[];
+  prerequisites: string[];
+  risks: string[];
+  createdAt?: string;
+  startDate?: string;
+  endDate?: string;
+  provider?: string;
+  model?: string;
+  jobId?: string;
+  analysis?: import("@/lib/analysis").AnalysisTranscript;
+};

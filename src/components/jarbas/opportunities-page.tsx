@@ -1,450 +1,599 @@
-import { useMemo, useState } from "react";
-import { ArrowLeft, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import {
+  AnalysisItemToolbar,
+  DeleteConfirmDialog,
+  FieldInput,
+  FieldLabel,
+  TextArea,
+  csvToList,
+  linesToList,
+  listToCsv,
+  listToLines,
+} from "@/components/jarbas/analysis-item-editor";
+import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
+import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
+import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
+import { DetailAiTabs } from "@/components/jarbas/detail-ai-tabs";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import {
-  MOCK_OPPORTUNITIES,
-  type Opportunity,
-} from "@/lib/mock-opportunities";
-import { cn } from "@/lib/utils";
+  deleteAnalysisItem,
+  listAnalysisItems,
+  updateAnalysisItem,
+  type AnalysisRunMeta,
+  type AnalysisTranscript,
+} from "@/lib/analysis";
+import { formatRangeLabel } from "@/lib/date-range";
+import type { Opportunity } from "@/lib/opportunities";
 
-function toInputDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
-function endOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(23, 59, 59, 999);
-  return next;
-}
-
-function startOfWeek(date: Date) {
-  const next = startOfDay(date);
-  const day = next.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  next.setDate(next.getDate() - diff);
-  return next;
-}
-
-type RangePreset = {
-  id: string;
-  label: string;
-  getRange: () => { start: Date; end: Date };
+type OpportunityDraft = {
+  title: string;
+  category: string;
+  signal: string;
+  unlock: string;
+  impact: string;
+  effort: string;
+  horizon: string;
+  whyNow: string;
+  successMetric: string;
+  owner: string;
+  relatedLearning: string;
+  hoursSavedPerCycle: string;
+  deliveryPlan: string;
+  prerequisites: string;
+  risks: string;
+  apps: string;
 };
 
-const PRESETS: RangePreset[] = [
-  {
-    id: "today",
-    label: "Today",
-    getRange: () => {
-      const today = new Date();
-      return { start: startOfDay(today), end: endOfDay(today) };
-    },
-  },
-  {
-    id: "yesterday",
-    label: "Yesterday",
-    getRange: () => {
-      const day = new Date();
-      day.setDate(day.getDate() - 1);
-      return { start: startOfDay(day), end: endOfDay(day) };
-    },
-  },
-  {
-    id: "yesterday-today",
-    label: "Yesterday + today",
-    getRange: () => {
-      const today = new Date();
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      return { start: startOfDay(yesterday), end: endOfDay(today) };
-    },
-  },
-  {
-    id: "last-7",
-    label: "Last 7 days",
-    getRange: () => {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - 6);
-      return { start: startOfDay(start), end: endOfDay(end) };
-    },
-  },
-  {
-    id: "last-week",
-    label: "Last week",
-    getRange: () => {
-      const thisWeekStart = startOfWeek(new Date());
-      const lastWeekEnd = new Date(thisWeekStart);
-      lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
-      const lastWeekStart = startOfWeek(lastWeekEnd);
-      return { start: lastWeekStart, end: endOfDay(lastWeekEnd) };
-    },
-  },
-  {
-    id: "this-month",
-    label: "This month",
-    getRange: () => {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { start: startOfDay(start), end: endOfDay(now) };
-    },
-  },
-];
-
-function formatRangeLabel(start: string, end: string) {
-  if (!start || !end) return "Choose a range";
-  if (start === end) return start;
-  return `${start} → ${end}`;
+function toDraft(opportunity: Opportunity): OpportunityDraft {
+  return {
+    title: opportunity.title ?? "",
+    category: opportunity.category ?? "",
+    signal: opportunity.signal ?? "",
+    unlock: opportunity.unlock ?? "",
+    impact: opportunity.impact ?? "",
+    effort: opportunity.effort ?? "",
+    horizon: opportunity.horizon ?? "",
+    whyNow: opportunity.whyNow ?? "",
+    successMetric: opportunity.successMetric ?? "",
+    owner: opportunity.owner ?? "",
+    relatedLearning: opportunity.relatedLearning ?? "",
+    hoursSavedPerCycle: opportunity.hoursSavedPerCycle ?? "",
+    deliveryPlan: listToLines(opportunity.deliveryPlan),
+    prerequisites: listToLines(opportunity.prerequisites),
+    risks: listToLines(opportunity.risks),
+    apps: listToCsv(opportunity.apps),
+  };
 }
 
 function OpportunityDetail({
   opportunity,
   onBack,
+  onSaved,
+  onDeleted,
 }: {
   opportunity: Opportunity;
   onBack: () => void;
+  onSaved: (opportunity: Opportunity) => void;
+  onDeleted: () => void;
 }) {
+  const [tab, setTab] = useState<"details" | "ai">("details");
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(() => toDraft(opportunity));
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDraft(toDraft(opportunity));
+    setEditing(false);
+    setActionError(null);
+  }, [opportunity]);
+
+  const analysis = opportunity.analysis as AnalysisTranscript | undefined;
+  const promptLabel = `Capture opportunities for ${formatRangeLabel(
+    opportunity.startDate ?? "",
+    opportunity.endDate ?? "",
+  )}.`;
+
+  function patchDraft<K extends keyof OpportunityDraft>(
+    key: K,
+    value: OpportunityDraft[K],
+  ) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  async function handleSave() {
+    if (!draft.title.trim()) {
+      setActionError("Title is required.");
+      return;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const next = await updateAnalysisItem<Opportunity>(
+        "opportunities",
+        opportunity.id,
+        {
+          ...opportunity,
+          title: draft.title.trim(),
+          category: draft.category.trim(),
+          signal: draft.signal.trim(),
+          unlock: draft.unlock.trim(),
+          impact: draft.impact.trim(),
+          effort: draft.effort.trim(),
+          horizon: draft.horizon.trim(),
+          whyNow: draft.whyNow.trim(),
+          successMetric: draft.successMetric.trim(),
+          owner: draft.owner.trim(),
+          relatedLearning: draft.relatedLearning.trim(),
+          hoursSavedPerCycle: draft.hoursSavedPerCycle.trim(),
+          deliveryPlan: linesToList(draft.deliveryPlan),
+          prerequisites: linesToList(draft.prerequisites),
+          risks: linesToList(draft.risks),
+          apps: csvToList(draft.apps),
+        },
+      );
+      onSaved(next);
+      setEditing(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    setActionError(null);
+    try {
+      await deleteAnalysisItem("opportunities", opportunity.id);
+      setConfirmDelete(false);
+      onDeleted();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
-      <Button
-        type="button"
-        variant="ghost"
-        size="sm"
-        onClick={onBack}
-        className="-ml-2 rounded-none text-muted-foreground"
-      >
-        <ArrowLeft className="size-3.5" />
-        All opportunities
-      </Button>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onBack}
+          className="-ml-2 rounded-none text-muted-foreground"
+        >
+          <ArrowLeft className="size-3.5" />
+          All opportunities
+        </Button>
+        {tab === "details" ? (
+          <AnalysisItemToolbar
+            editing={editing}
+            saving={saving}
+            deleting={deleting}
+            onEdit={() => {
+              setDraft(toDraft(opportunity));
+              setEditing(true);
+              setActionError(null);
+            }}
+            onCancelEdit={() => {
+              setDraft(toDraft(opportunity));
+              setEditing(false);
+              setActionError(null);
+            }}
+            onSave={() => void handleSave()}
+            onDeleteRequest={() => setConfirmDelete(true)}
+          />
+        ) : null}
+      </div>
 
       <header className="mt-4 border-b border-border pb-6">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-            {opportunity.category}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {opportunity.horizon}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            Impact {opportunity.impact}
-          </span>
-          <span className="text-xs text-muted-foreground">
-            Effort {opportunity.effort}
-          </span>
-        </div>
-        <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
-          {opportunity.title}
-        </h1>
-        <p className="mt-3 text-sm text-muted-foreground">
-          Owner {opportunity.owner} · Saves {opportunity.hoursSavedPerCycle}
-        </p>
+        {editing ? (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <FieldLabel>Title</FieldLabel>
+              <FieldInput value={draft.title} onChange={(v) => patchDraft("title", v)} />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <div className="space-y-1.5">
+                <FieldLabel>Category</FieldLabel>
+                <FieldInput value={draft.category} onChange={(v) => patchDraft("category", v)} />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Horizon</FieldLabel>
+                <FieldInput value={draft.horizon} onChange={(v) => patchDraft("horizon", v)} />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Impact</FieldLabel>
+                <FieldInput value={draft.impact} onChange={(v) => patchDraft("impact", v)} />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Effort</FieldLabel>
+                <FieldInput value={draft.effort} onChange={(v) => patchDraft("effort", v)} />
+              </div>
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <FieldLabel>Owner</FieldLabel>
+                <FieldInput value={draft.owner} onChange={(v) => patchDraft("owner", v)} />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Hours saved / cycle</FieldLabel>
+                <FieldInput
+                  value={draft.hoursSavedPerCycle}
+                  onChange={(v) => patchDraft("hoursSavedPerCycle", v)}
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                {opportunity.category}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {opportunity.horizon}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Impact {opportunity.impact}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                Effort {opportunity.effort}
+              </span>
+            </div>
+            <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
+              {opportunity.title}
+            </h1>
+            <p className="mt-3 text-sm text-muted-foreground">
+              Owner {opportunity.owner} · Saves {opportunity.hoursSavedPerCycle}
+            </p>
+          </>
+        )}
+        {!editing ? <DetailAiTabs tab={tab} onTabChange={setTab} /> : null}
       </header>
 
-      <section className="mt-8 space-y-3">
-        <h2 className="label-caps text-muted-foreground">Signal</h2>
-        <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-          {opportunity.signal}
+      {actionError ? (
+        <p className="mt-4 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {actionError}
         </p>
-      </section>
+      ) : null}
 
-      <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Unlock</h2>
-        <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-          {opportunity.unlock}
-        </p>
-      </section>
-
-      <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Why now</h2>
-        <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-          {opportunity.whyNow}
-        </p>
-      </section>
-
-      <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Delivery plan</h2>
-        <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-foreground">
-          {opportunity.deliveryPlan.map((step) => (
-            <li key={step}>{step}</li>
-          ))}
-        </ol>
-      </section>
-
-      <section className="mt-8 grid gap-6 border-t border-border pt-8 sm:grid-cols-2">
-        <div className="space-y-2">
-          <h2 className="label-caps text-muted-foreground">Success metric</h2>
-          <p className="text-sm leading-relaxed text-foreground">
-            {opportunity.successMetric}
-          </p>
+      {tab === "ai" && !editing ? (
+        <div className="-mx-4 sm:-mx-6 lg:-mx-8">
+          <AnalysisChatPanel
+            transcript={
+              analysis ?? {
+                jobId: opportunity.jobId ?? opportunity.id,
+                content: "",
+                thinking: "",
+                tools: [],
+              }
+            }
+            promptLabel={promptLabel}
+          />
         </div>
-        <div className="space-y-2">
-          <h2 className="label-caps text-muted-foreground">Related learning</h2>
-          <p className="text-sm leading-relaxed text-foreground">
-            {opportunity.relatedLearning}
-          </p>
-        </div>
-      </section>
+      ) : (
+        <>
+          <section className="mt-8 space-y-3">
+            <h2 className="label-caps text-muted-foreground">Signal</h2>
+            {editing ? (
+              <TextArea value={draft.signal} onChange={(v) => patchDraft("signal", v)} rows={4} />
+            ) : (
+              <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
+                {opportunity.signal}
+              </p>
+            )}
+          </section>
 
-      <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Prerequisites</h2>
-        <ul className="space-y-2 text-sm leading-relaxed text-foreground">
-          {opportunity.prerequisites.map((item) => (
-            <li key={item} className="border border-border bg-card px-3 py-2">
-              {item}
-            </li>
-          ))}
-        </ul>
-      </section>
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Unlock</h2>
+            {editing ? (
+              <TextArea value={draft.unlock} onChange={(v) => patchDraft("unlock", v)} rows={4} />
+            ) : (
+              <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
+                {opportunity.unlock}
+              </p>
+            )}
+          </section>
 
-      <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Risks</h2>
-        <ul className="space-y-2 text-sm leading-relaxed text-foreground">
-          {opportunity.risks.map((item) => (
-            <li key={item} className="border border-border bg-card px-3 py-2">
-              {item}
-            </li>
-          ))}
-        </ul>
-      </section>
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Why now</h2>
+            {editing ? (
+              <TextArea value={draft.whyNow} onChange={(v) => patchDraft("whyNow", v)} rows={4} />
+            ) : (
+              <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
+                {opportunity.whyNow}
+              </p>
+            )}
+          </section>
 
-      <section className="mt-8 space-y-3 border-t border-border pt-8">
-        <h2 className="label-caps text-muted-foreground">Apps</h2>
-        <AppBadgeList apps={opportunity.apps} />
-      </section>
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Delivery plan</h2>
+            {editing ? (
+              <>
+                <TextArea
+                  value={draft.deliveryPlan}
+                  onChange={(v) => patchDraft("deliveryPlan", v)}
+                  rows={5}
+                />
+                <p className="text-xs text-muted-foreground">One step per line</p>
+              </>
+            ) : (
+              <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-foreground">
+                {(opportunity.deliveryPlan ?? []).map((step) => (
+                  <li key={step}>{step}</li>
+                ))}
+              </ol>
+            )}
+          </section>
+
+          <section className="mt-8 grid gap-6 border-t border-border pt-8 sm:grid-cols-2">
+            <div className="space-y-2">
+              <h2 className="label-caps text-muted-foreground">Success metric</h2>
+              {editing ? (
+                <FieldInput
+                  value={draft.successMetric}
+                  onChange={(v) => patchDraft("successMetric", v)}
+                />
+              ) : (
+                <p className="text-sm leading-relaxed text-foreground">
+                  {opportunity.successMetric}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <h2 className="label-caps text-muted-foreground">Related learning</h2>
+              {editing ? (
+                <FieldInput
+                  value={draft.relatedLearning}
+                  onChange={(v) => patchDraft("relatedLearning", v)}
+                />
+              ) : (
+                <p className="text-sm leading-relaxed text-foreground">
+                  {opportunity.relatedLearning}
+                </p>
+              )}
+            </div>
+          </section>
+
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Prerequisites</h2>
+            {editing ? (
+              <>
+                <TextArea
+                  value={draft.prerequisites}
+                  onChange={(v) => patchDraft("prerequisites", v)}
+                  rows={4}
+                />
+                <p className="text-xs text-muted-foreground">One item per line</p>
+              </>
+            ) : (
+              <ul className="space-y-2 text-sm leading-relaxed text-foreground">
+                {(opportunity.prerequisites ?? []).map((item) => (
+                  <li key={item} className="border border-border bg-card px-3 py-2">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Risks</h2>
+            {editing ? (
+              <>
+                <TextArea value={draft.risks} onChange={(v) => patchDraft("risks", v)} rows={4} />
+                <p className="text-xs text-muted-foreground">One item per line</p>
+              </>
+            ) : (
+              <ul className="space-y-2 text-sm leading-relaxed text-foreground">
+                {(opportunity.risks ?? []).map((item) => (
+                  <li key={item} className="border border-border bg-card px-3 py-2">
+                    {item}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Apps</h2>
+            {editing ? (
+              <>
+                <FieldInput value={draft.apps} onChange={(v) => patchDraft("apps", v)} />
+                <p className="text-xs text-muted-foreground">Comma-separated</p>
+              </>
+            ) : (
+              <AppBadgeList apps={opportunity.apps ?? []} />
+            )}
+          </section>
+        </>
+      )}
+
+      <DeleteConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete opportunity?"
+        description="This removes it from ~/.jarbas/opportunities. You cannot undo this."
+        deleting={deleting}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }
 
 export function OpportunitiesPage() {
+  const [items, setItems] = useState<Opportunity[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [presetId, setPresetId] = useState<string | "custom">("today");
-  const [startDate, setStartDate] = useState(() => toInputDate(new Date()));
-  const [endDate, setEndDate] = useState(() => toInputDate(new Date()));
-  const [capturing, setCapturing] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const [run, setRun] = useState<AnalysisRunMeta | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
 
-  const selected = MOCK_OPPORTUNITIES.find(
-    (opportunity) => opportunity.id === selectedId,
-  );
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const next = await listAnalysisItems<Opportunity>("opportunities");
+      setItems(next);
+      return next;
+    } catch (error) {
+      console.error("Failed to load opportunities", error);
+      setLoadError(error instanceof Error ? error.message : String(error));
+      return [] as Opportunity[];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const rangeValid = useMemo(() => {
-    if (!startDate || !endDate) return false;
-    return startDate <= endDate;
-  }, [startDate, endDate]);
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
 
-  function applyPreset(preset: RangePreset) {
-    const { start, end } = preset.getRange();
-    setPresetId(preset.id);
-    setStartDate(toInputDate(start));
-    setEndDate(toInputDate(end));
-  }
-
-  function openCapture() {
-    applyPreset(PRESETS[0]);
-    setStatus(null);
-    setOpen(true);
-  }
-
-  async function captureOpportunities() {
-    if (!rangeValid) return;
-    setCapturing(true);
-    setStatus(null);
-    await new Promise((resolve) => window.setTimeout(resolve, 900));
-    setCapturing(false);
-    setStatus(
-      `Captured opportunities for ${formatRangeLabel(startDate, endDate)}.`,
+  if (run) {
+    return (
+      <AnalysisRunView
+        meta={run}
+        onCancel={() => setRun(null)}
+        onErrorBack={() => setRun(null)}
+        onCompleted={(ids) => {
+          void refresh().then(() => {
+            setRun(null);
+            if (ids[0]) setSelectedId(ids[0]);
+          });
+        }}
+      />
     );
   }
+
+  const selected = items.find((opportunity) => opportunity.id === selectedId);
 
   if (selected) {
     return (
       <OpportunityDetail
         opportunity={selected}
         onBack={() => setSelectedId(null)}
+        onSaved={(next) => {
+          setItems((current) =>
+            current.map((item) => (item.id === next.id ? next : item)),
+          );
+        }}
+        onDeleted={() => {
+          setItems((current) => current.filter((item) => item.id !== selected.id));
+          setSelectedId(null);
+        }}
       />
     );
   }
 
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="label-caps text-muted-foreground">Jarbas</p>
-          <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
+      <div className="min-w-0">
+        <p className="label-caps text-muted-foreground">Jarbas</p>
+        <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <h1 className="font-display text-3xl tracking-tight text-foreground sm:text-4xl">
             Opportunities
           </h1>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-            Fast delivery unlocks ready to review.
-          </p>
+          <Button
+            type="button"
+            className="shrink-0 rounded-none self-start sm:self-auto"
+            onClick={() => setOpen(true)}
+          >
+            <Sparkles className="size-3.5" />
+            Capture opportunities
+          </Button>
         </div>
-        <Button
-          type="button"
-          className="shrink-0 rounded-none"
-          onClick={openCapture}
-        >
-          <Sparkles className="size-3.5" />
-          Capture opportunities
-        </Button>
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+          Fast delivery unlocks ready to review.
+        </p>
       </div>
 
-      <ul className="mt-10 divide-y divide-border border border-border bg-card">
-        {MOCK_OPPORTUNITIES.map((opportunity, index) => (
-          <li key={opportunity.id}>
-            <button
-              type="button"
-              onClick={() => setSelectedId(opportunity.id)}
-              className="animate-rise w-full px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5"
-              style={{ animationDelay: `${index * 50}ms` }}
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                  {opportunity.category}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {opportunity.horizon}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  Impact {opportunity.impact}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  Effort {opportunity.effort}
-                </span>
-              </div>
-              <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
-                {opportunity.title}
-              </h2>
-              <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                <span className="font-medium text-foreground">Signal · </span>
-                {opportunity.signal}
-              </p>
-              <p className="mt-2 text-sm leading-relaxed text-foreground/90">
-                <span className="font-medium">Unlock · </span>
-                {opportunity.unlock}
-              </p>
-              <AppBadgeList apps={opportunity.apps} className="mt-3" />
-            </button>
-          </li>
-        ))}
-      </ul>
+      {loadError ? (
+        <p className="mt-8 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {loadError}
+        </p>
+      ) : null}
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="rounded-none sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Capture opportunities</DialogTitle>
-            <DialogDescription>
-              Choose a timeframe from suggestions or set custom dates.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-5">
-            <div>
-              <p className="label-caps text-muted-foreground">Suggestions</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => applyPreset(preset)}
-                    className={cn(
-                      "border px-2.5 py-1.5 text-xs font-medium transition-colors",
-                      presetId === preset.id
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border bg-background text-foreground hover:bg-muted",
-                    )}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="label-caps text-muted-foreground">Custom range</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="text-xs text-muted-foreground">Start</span>
-                  <Input
-                    type="date"
-                    value={startDate}
-                    onChange={(event) => {
-                      setPresetId("custom");
-                      setStartDate(event.target.value);
-                    }}
-                    className="rounded-none"
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs text-muted-foreground">End</span>
-                  <Input
-                    type="date"
-                    value={endDate}
-                    onChange={(event) => {
-                      setPresetId("custom");
-                      setEndDate(event.target.value);
-                    }}
-                    className="rounded-none"
-                  />
-                </label>
-              </div>
-              {!rangeValid ? (
-                <p className="mt-2 text-xs text-destructive">
-                  End date must be on or after start date.
+      {loading ? (
+        <div className="mt-16 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading opportunities…
+        </div>
+      ) : items.length === 0 ? (
+        <div className="mt-10 border border-border bg-card px-5 py-10 text-center">
+          <p className="font-display text-xl tracking-tight text-foreground">
+            No opportunities yet
+          </p>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+            Pick a timeframe and let Pi surface unlocks from how you actually
+            work.
+          </p>
+          <Button
+            type="button"
+            className="mt-6 rounded-none"
+            onClick={() => setOpen(true)}
+          >
+            <Sparkles className="size-3.5" />
+            Capture opportunities
+          </Button>
+        </div>
+      ) : (
+        <ul className="mt-10 divide-y divide-border border border-border bg-card">
+          {items.map((opportunity, index) => (
+            <li key={opportunity.id}>
+              <button
+                type="button"
+                onClick={() => setSelectedId(opportunity.id)}
+                className="animate-rise w-full px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5"
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                    {opportunity.category}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    {opportunity.horizon}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Impact {opportunity.impact}
+                  </span>
+                  <span className="text-xs text-muted-foreground">
+                    Effort {opportunity.effort}
+                  </span>
+                </div>
+                <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
+                  {opportunity.title}
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                  <span className="font-medium text-foreground">Signal · </span>
+                  {opportunity.signal}
                 </p>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Selected · {formatRangeLabel(startDate, endDate)}
+                <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                  <span className="font-medium">Unlock · </span>
+                  {opportunity.unlock}
                 </p>
-              )}
-            </div>
+                <AppBadgeList apps={opportunity.apps ?? []} className="mt-3" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
-            {status ? (
-              <p className="border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
-                {status}
-              </p>
-            ) : null}
-          </div>
-
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-none"
-              onClick={() => setOpen(false)}
-            >
-              Close
-            </Button>
-            <Button
-              type="button"
-              className="rounded-none"
-              disabled={!rangeValid || capturing}
-              onClick={() => void captureOpportunities()}
-            >
-              <Sparkles className="size-3.5" />
-              {capturing ? "Capturing…" : "Capture opportunities"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AnalyzeRangeDialog
+        open={open}
+        onOpenChange={setOpen}
+        kind="opportunities"
+        title="Capture opportunities"
+        description="Pick a timeframe and model. Pi analyzes your capture and connected apps, then saves opportunities."
+        confirmLabel="Capture opportunities"
+        onStarted={setRun}
+      />
     </div>
   );
 }

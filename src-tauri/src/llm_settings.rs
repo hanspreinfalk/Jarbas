@@ -225,9 +225,28 @@ fn to_view(stored: &StoredLlmSettings) -> LlmSettingsView {
 
 /// Provider, model, and process env vars (API keys) for spawning Pi.
 pub fn load_runtime_llm() -> Result<(LlmProvider, String, BTreeMap<String, String>), String> {
+    load_runtime_llm_with(None, None)
+}
+
+/// Same as [`load_runtime_llm`], with optional provider/model override for one run.
+pub fn load_runtime_llm_with(
+    provider_override: Option<&str>,
+    model_override: Option<&str>,
+) -> Result<(LlmProvider, String, BTreeMap<String, String>), String> {
     let stored = load_stored()?;
-    let provider = resolved_provider(&stored);
-    let model = resolved_model(&stored, provider);
+    let provider = provider_override
+        .and_then(LlmProvider::parse)
+        .unwrap_or_else(|| resolved_provider(&stored));
+    let model = match model_override.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(model) if provider.models().contains(&model) => model.to_string(),
+        Some(model) => {
+            return Err(format!(
+                "Unknown model for {}: {model}",
+                provider.label()
+            ));
+        }
+        None => resolved_model(&stored, provider),
+    };
     let mut env = BTreeMap::new();
     for item in LlmProvider::all() {
         let Some(key) = stored

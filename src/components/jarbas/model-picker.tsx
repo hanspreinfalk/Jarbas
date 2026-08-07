@@ -20,10 +20,14 @@ export function ModelPicker({
   settings,
   disabled,
   onSelect,
+  side = "top",
+  align = "end",
 }: {
   settings: LlmSettings | null;
   disabled?: boolean;
   onSelect: (provider: LlmProvider, model: string) => void;
+  side?: "top" | "bottom";
+  align?: "start" | "center" | "end";
 }) {
   const label = settings ? shortModelLabel(settings.model) : "Model";
 
@@ -54,8 +58,8 @@ export function ModelPicker({
         <ChevronsUpDown className="size-3 shrink-0 opacity-60" />
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        align="end"
-        side="top"
+        align={align}
+        side={side}
         className="min-w-44 rounded-none"
       >
         {(settings?.providers ?? []).map((provider) => (

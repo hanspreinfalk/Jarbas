@@ -300,38 +300,44 @@ fn resolve_sdk_root(app: &tauri::App) -> Result<PathBuf, String> {
 }
 
 fn resolve_ffmpeg_bin_dir(app: &tauri::App) -> Option<PathBuf> {
+    let names = ["ffmpeg.exe", "ffmpeg"];
+
     if let Ok(from_env) = std::env::var("JARBAS_FFMPEG_DIR") {
         let path = PathBuf::from(from_env);
-        if path.join("ffmpeg").is_file() {
-            return Some(path);
+        for name in names {
+            if path.join(name).is_file() {
+                return Some(path);
+            }
         }
     }
 
-    // Bundled: Contents/Resources/resources/ffmpeg/bin/ffmpeg
-    if let Some(ffmpeg) = pi_agent::resolve_resource(app.handle(), "ffmpeg/bin/ffmpeg") {
-        if ffmpeg.is_file() {
-            return ffmpeg.parent().map(|p| p.to_path_buf());
+    for name in names {
+        let relative = format!("ffmpeg/bin/{name}");
+        if let Some(ffmpeg) = pi_agent::resolve_resource(app.handle(), &relative) {
+            if ffmpeg.is_file() {
+                return ffmpeg.parent().map(|p| p.to_path_buf());
+            }
         }
     }
 
-    // Dev fallback: src-tauri/resources/ffmpeg/bin/ffmpeg
-    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/ffmpeg/bin/ffmpeg");
-    if manifest.is_file() {
-        return manifest.parent().map(|p| p.to_path_buf());
+    // Dev fallback: src-tauri/resources/ffmpeg/bin/ffmpeg[.exe]
+    let manifest_bin = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/ffmpeg/bin");
+    for name in names {
+        let candidate = manifest_bin.join(name);
+        if candidate.is_file() {
+            return Some(manifest_bin);
+        }
     }
 
     None
 }
 
 fn path_with_ffmpeg_first(ffmpeg_bin_dir: Option<&Path>) -> std::ffi::OsString {
-    let mut parts: Vec<String> = Vec::new();
+    let mut prefer = Vec::new();
     if let Some(dir) = ffmpeg_bin_dir {
-        parts.push(dir.display().to_string());
+        prefer.push(dir.to_path_buf());
     }
-    if let Ok(existing) = std::env::var("PATH") {
-        parts.push(existing);
-    }
-    parts.join(":").into()
+    crate::paths::child_path_env(&prefer)
 }
 
 fn resolve_host_paths(app: &tauri::App) -> Result<HostPaths, String> {
@@ -886,7 +892,21 @@ fn reveal_in_finder(path: &str) -> Result<(), String> {
             .map_err(|error| format!("could not reveal capture path: {error}"))
     }
 
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        let reveal = if target.exists() {
+            target
+        } else {
+            fallback
+        };
+        std::process::Command::new("explorer")
+            .arg(reveal)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("could not reveal capture path: {error}"))
+    }
+
+    #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
     {
         let mut command = std::process::Command::new("xdg-open");
         command.arg(if target.exists() { target } else { fallback });

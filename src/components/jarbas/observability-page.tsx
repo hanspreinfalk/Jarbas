@@ -242,71 +242,46 @@ export function ObservabilityPage() {
   }
 
   return (
-    <div className="animate-rise mx-auto w-full max-w-4xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="animate-rise mx-auto w-full max-w-4xl px-4 py-6 sm:px-6 lg:px-8">
       <div className="min-w-0">
         <p className="label-caps text-muted-foreground">Jarbas</p>
         <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
           Observability
         </h1>
-        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+        <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
           Agent runs at a glance.
         </p>
       </div>
 
-      <div className="mt-10 overflow-x-auto border border-border bg-card">
-        <table className="w-full min-w-[36rem] border-collapse text-left text-sm">
-          <thead>
-            <tr className="border-b border-border bg-muted/40">
-              <th className="label-caps px-3 py-2.5 font-medium text-muted-foreground">
-                Status
-              </th>
-              <th className="label-caps px-3 py-2.5 font-medium text-muted-foreground">
-                Run
-              </th>
-              <th className="label-caps px-3 py-2.5 font-medium text-muted-foreground">
-                Agent
-              </th>
-              <th className="label-caps px-3 py-2.5 font-medium text-muted-foreground">
-                Started
-              </th>
-              <th className="label-caps px-3 py-2.5 font-medium text-muted-foreground">
-                Duration
-              </th>
-            </tr>
-          </thead>
-          <tbody>
-            {MOCK_AGENT_RUNS.map((run) => (
-              <tr
-                key={run.id}
-                tabIndex={0}
-                role="button"
-                onClick={() => setSelectedId(run.id)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" || event.key === " ") {
-                    event.preventDefault();
-                    setSelectedId(run.id);
-                  }
-                }}
-                className="cursor-pointer border-b border-border last:border-b-0 hover:bg-muted/30 focus-visible:bg-muted/40 focus-visible:outline-none"
-              >
-                <td className="px-3 py-3">
-                  <StatusBadge status={run.status} />
-                </td>
-                <td className="px-3 py-3 font-medium text-foreground">
+      <ul className="mt-6 divide-y divide-border border border-border bg-card">
+        {MOCK_AGENT_RUNS.map((run, index) => (
+          <li key={run.id}>
+            <button
+              type="button"
+              onClick={() => setSelectedId(run.id)}
+              className="animate-rise flex w-full items-start justify-between gap-4 px-3 py-2.5 text-left transition-colors hover:bg-muted sm:px-4"
+              style={{ animationDelay: `${index * 40}ms` }}
+            >
+              <div className="min-w-0">
+                <h2 className="truncate text-sm font-medium tracking-tight text-foreground">
                   {run.title}
-                </td>
-                <td className="px-3 py-3 text-muted-foreground">{run.agent}</td>
-                <td className="whitespace-nowrap px-3 py-3 text-muted-foreground">
+                </h2>
+                <p className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {run.agent}
+                </p>
+              </div>
+              <div className="shrink-0 text-right">
+                <StatusBadge status={run.status} />
+                <p className="mt-1 text-xs text-muted-foreground">
                   {run.startedAt}
-                </td>
-                <td className="whitespace-nowrap px-3 py-3 text-foreground">
+                  <span className="text-muted-foreground/70"> · </span>
                   {run.duration}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+                </p>
+              </div>
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

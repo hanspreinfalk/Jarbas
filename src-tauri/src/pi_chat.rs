@@ -303,9 +303,7 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
     }
     JarbasPaths::ensure_directories()?;
 
-    let home = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(JarbasPaths::root);
+    let home = JarbasPaths::home();
 
     let composio_user_id = state
         .composio_user_id
@@ -328,16 +326,9 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
         }
     }
 
-    let node_bin = node
-        .parent()
-        .map(|path| path.display().to_string())
-        .unwrap_or_default();
+    let node_bin = node.parent().map(|path| path.to_path_buf()).unwrap_or_default();
     // Prefer app-owned ~/.jarbas/bin (kept for diagnostics; apps use Tool Router MCP).
-    let path = format!(
-        "{}:{}:/usr/bin:/bin",
-        JarbasPaths::bin_dir().display(),
-        node_bin
-    );
+    let path = crate::paths::child_path_env(&[JarbasPaths::bin_dir(), node_bin]);
 
     let mut command = Command::new(&node);
     command
@@ -353,6 +344,8 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
         .env("PI_CODING_AGENT", "true")
         .env("PI_CODING_AGENT_DIR", JarbasPaths::pi_config())
         .env("PATH", &path)
+        .env("HOME", &home)
+        .env("USERPROFILE", &home)
         .env("COMPOSIO_CACHE_DIR", JarbasPaths::composio_home())
         .env("COMPOSIO_INSTALL_DIR", JarbasPaths::composio_cli_dir())
         .stdin(Stdio::piped())

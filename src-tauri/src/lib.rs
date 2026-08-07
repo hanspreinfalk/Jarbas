@@ -2,6 +2,7 @@ mod composio;
 mod llm_settings;
 mod paths;
 mod pi_agent;
+mod pi_analysis;
 mod pi_chat;
 mod screenpipe;
 
@@ -184,6 +185,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(pi_agent::PiAgentState::default())
         .manage(pi_chat::AskChatState::default())
+        .manage(pi_analysis::AnalysisState::default())
         .setup(|app| {
             // Never return Err from setup on macOS: Tauri panics inside
             // tao's did_finish_launching (extern "C"), which becomes
@@ -211,6 +213,12 @@ pub fn run() {
             pi_chat::ask_send_prompt,
             pi_chat::ask_abort,
             pi_chat::ask_new_session,
+            pi_analysis::list_analysis_items,
+            pi_analysis::delete_analysis_item,
+            pi_analysis::update_analysis_item,
+            pi_analysis::get_analysis_status,
+            pi_analysis::start_analysis,
+            pi_analysis::abort_analysis,
             screenpipe::screenpipe_default_paths,
             screenpipe::screenpipe_permissions,
             screenpipe::screenpipe_start,

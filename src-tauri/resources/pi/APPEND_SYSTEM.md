@@ -19,6 +19,7 @@ Data and runtime for this app live under `~/.jarbas` (not `~/.jarbas-main`).
 
 - Root: `~/.jarbas`
 - Screen + accessibility capture: `~/.jarbas` (`db.sqlite`, `data/`, session MP4s)
+- Learnings / opportunities / reports: `~/.jarbas/learnings/`, `opportunities/`, `reports/`
 - Pi agent: `~/.jarbas/pi-agent`
 - Pi config: `~/.jarbas/pi-config`
 - Sessions: `~/.jarbas/pi-sessions`

@@ -1,0 +1,24 @@
+export type Learning = {
+  id: string;
+  title: string;
+  category: string;
+  observed: string;
+  insight: string;
+  apps: string[];
+  frequency: string;
+  firstSeen: string;
+  lastSeen: string;
+  confidence: string;
+  evidence: string[];
+  steps: string[];
+  relatedOpportunity: string;
+  nextAction: string;
+  timePattern: string;
+  createdAt?: string;
+  startDate?: string;
+  endDate?: string;
+  provider?: string;
+  model?: string;
+  jobId?: string;
+  analysis?: import("@/lib/analysis").AnalysisTranscript;
+};

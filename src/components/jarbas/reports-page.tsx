@@ -1,8 +1,9 @@
-import { useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ArrowLeft,
   CalendarDays,
   Download,
+  Loader2,
   LoaderCircle,
   Sparkles,
 } from "lucide-react";
@@ -18,6 +19,19 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
+import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
+import {
+  AnalysisItemToolbar,
+  DeleteConfirmDialog,
+  FieldInput,
+  FieldLabel,
+  TextArea,
+  linesToList,
+  listToLines,
+} from "@/components/jarbas/analysis-item-editor";
+import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
+import { DetailAiTabs } from "@/components/jarbas/detail-ai-tabs";
 import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
@@ -26,120 +40,16 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
+  deleteAnalysisItem,
+  listAnalysisItems,
+  updateAnalysisItem,
+  type AnalysisRunMeta,
+  type AnalysisTranscript,
+} from "@/lib/analysis";
+import { formatRangeLabel } from "@/lib/date-range";
 import { exportReportPdf } from "@/lib/export-report-pdf";
-import {
-  buildReportForRange,
-  MOCK_REPORTS,
-  type WorkReport,
-} from "@/lib/mock-reports";
+import { normalizeWorkReport, type WorkReport } from "@/lib/reports";
 import { cn } from "@/lib/utils";
-
-function toInputDate(date: Date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
-
-function startOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(0, 0, 0, 0);
-  return next;
-}
-
-function endOfDay(date: Date) {
-  const next = new Date(date);
-  next.setHours(23, 59, 59, 999);
-  return next;
-}
-
-function startOfWeek(date: Date) {
-  const next = startOfDay(date);
-  const day = next.getDay();
-  const diff = day === 0 ? 6 : day - 1;
-  next.setDate(next.getDate() - diff);
-  return next;
-}
-
-type RangePreset = {
-  id: string;
-  label: string;
-  getRange: () => { start: Date; end: Date };
-};
-
-const PRESETS: RangePreset[] = [
-  {
-    id: "today",
-    label: "Today",
-    getRange: () => {
-      const today = new Date();
-      return { start: startOfDay(today), end: endOfDay(today) };
-    },
-  },
-  {
-    id: "yesterday",
-    label: "Yesterday",
-    getRange: () => {
-      const day = new Date();
-      day.setDate(day.getDate() - 1);
-      return { start: startOfDay(day), end: endOfDay(day) };
-    },
-  },
-  {
-    id: "yesterday-today",
-    label: "Yesterday + today",
-    getRange: () => {
-      const today = new Date();
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      return { start: startOfDay(yesterday), end: endOfDay(today) };
-    },
-  },
-  {
-    id: "last-7",
-    label: "Last 7 days",
-    getRange: () => {
-      const end = new Date();
-      const start = new Date();
-      start.setDate(start.getDate() - 6);
-      return { start: startOfDay(start), end: endOfDay(end) };
-    },
-  },
-  {
-    id: "last-week",
-    label: "Last week",
-    getRange: () => {
-      const thisWeekStart = startOfWeek(new Date());
-      const lastWeekEnd = new Date(thisWeekStart);
-      lastWeekEnd.setDate(lastWeekEnd.getDate() - 1);
-      const lastWeekStart = startOfWeek(lastWeekEnd);
-      return { start: lastWeekStart, end: endOfDay(lastWeekEnd) };
-    },
-  },
-  {
-    id: "this-month",
-    label: "This month",
-    getRange: () => {
-      const now = new Date();
-      const start = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { start: startOfDay(start), end: endOfDay(now) };
-    },
-  },
-];
-
-function formatRangeLabel(start: string, end: string) {
-  if (!start || !end) return "Choose a range";
-  if (start === end) return start;
-  return `${start} → ${end}`;
-}
 
 const mixConfig = {
   deepWork: { label: "Deep work", color: "#080870" },
@@ -197,12 +107,58 @@ function ScoreBar({ score }: { score: number }) {
 function ReportDetail({
   report,
   onBack,
+  onSaved,
+  onDeleted,
 }: {
   report: WorkReport;
   onBack: () => void;
+  onSaved: (report: WorkReport) => void;
+  onDeleted: () => void;
 }) {
   const reportRef = useRef<HTMLDivElement | null>(null);
   const [exporting, setExporting] = useState(false);
+  const [tab, setTab] = useState<"details" | "ai">("details");
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [draft, setDraft] = useState({
+    title: report.title ?? "",
+    subtitle: report.subtitle ?? "",
+    period: report.period ?? "",
+    person: report.person ?? "",
+    role: report.role ?? "",
+    headline: report.headline ?? "",
+    executiveBrief: report.executiveBrief ?? "",
+    keyInsight: report.keyInsight ?? "",
+    deliveryUnlock: report.deliveryUnlock ?? "",
+    impactOnce: report.impactOnce ?? "",
+    improvements: listToLines(report.improvements),
+  });
+  const analysis = report.analysis as AnalysisTranscript | undefined;
+  const promptLabel = `Capture a work report for ${formatRangeLabel(
+    report.startDate ?? "",
+    report.endDate ?? "",
+  )}.`;
+
+  useEffect(() => {
+    setDraft({
+      title: report.title ?? "",
+      subtitle: report.subtitle ?? "",
+      period: report.period ?? "",
+      person: report.person ?? "",
+      role: report.role ?? "",
+      headline: report.headline ?? "",
+      executiveBrief: report.executiveBrief ?? "",
+      keyInsight: report.keyInsight ?? "",
+      deliveryUnlock: report.deliveryUnlock ?? "",
+      impactOnce: report.impactOnce ?? "",
+      improvements: listToLines(report.improvements),
+    });
+    setEditing(false);
+    setActionError(null);
+  }, [report]);
 
   const repeatChart = useMemo(
     () =>
@@ -237,6 +193,50 @@ function ReportDetail({
     }
   }
 
+  async function handleSave() {
+    if (!draft.title.trim()) {
+      setActionError("Title is required.");
+      return;
+    }
+    setSaving(true);
+    setActionError(null);
+    try {
+      const next = await updateAnalysisItem<WorkReport>("reports", report.id, {
+        ...report,
+        title: draft.title.trim(),
+        subtitle: draft.subtitle.trim(),
+        period: draft.period.trim(),
+        person: draft.person.trim(),
+        role: draft.role.trim(),
+        headline: draft.headline.trim(),
+        executiveBrief: draft.executiveBrief.trim(),
+        keyInsight: draft.keyInsight.trim(),
+        deliveryUnlock: draft.deliveryUnlock.trim(),
+        impactOnce: draft.impactOnce.trim(),
+        improvements: linesToList(draft.improvements),
+      });
+      onSaved(normalizeWorkReport(next));
+      setEditing(false);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handleDelete() {
+    setDeleting(true);
+    setActionError(null);
+    try {
+      await deleteAnalysisItem("reports", report.id);
+      setConfirmDelete(false);
+      onDeleted();
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+      setDeleting(false);
+    }
+  }
+
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:max-w-4xl lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -250,62 +250,218 @@ function ReportDetail({
           <ArrowLeft className="size-3.5" />
           All reports
         </Button>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="rounded-none"
-          disabled={exporting}
-          onClick={() => void handleExportPdf()}
-        >
-          {exporting ? (
-            <LoaderCircle className="size-3.5 animate-spin" />
-          ) : (
-            <Download className="size-3.5" />
-          )}
-          {exporting ? "Exporting…" : "Export PDF"}
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {tab === "details" ? (
+            <AnalysisItemToolbar
+              editing={editing}
+              saving={saving}
+              deleting={deleting}
+              onEdit={() => {
+                setEditing(true);
+                setActionError(null);
+              }}
+              onCancelEdit={() => {
+                setEditing(false);
+                setActionError(null);
+              }}
+              onSave={() => void handleSave()}
+              onDeleteRequest={() => setConfirmDelete(true)}
+            />
+          ) : null}
+          {tab === "details" && !editing ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-none"
+              disabled={exporting}
+              onClick={() => void handleExportPdf()}
+            >
+              {exporting ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+              {exporting ? "Exporting…" : "Export PDF"}
+            </Button>
+          ) : null}
+        </div>
       </div>
 
+      <div className="mt-2">
+        {!editing ? <DetailAiTabs tab={tab} onTabChange={setTab} /> : null}
+      </div>
+
+      {actionError ? (
+        <p className="mt-4 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {actionError}
+        </p>
+      ) : null}
+
+      {tab === "ai" && !editing ? (
+        <div className="-mx-4 sm:-mx-6 lg:-mx-8">
+          <AnalysisChatPanel
+            transcript={
+              analysis ?? {
+                jobId: report.jobId ?? report.id,
+                content: "",
+                thinking: "",
+                tools: [],
+              }
+            }
+            promptLabel={promptLabel}
+          />
+        </div>
+      ) : (
       <div ref={reportRef} className="bg-background pt-4">
       {/* Header */}
       <header className="pb-2">
-        <p className="label-caps text-muted-foreground">{report.period}</p>
-        <h1 className="mt-1 font-display text-2xl tracking-tight text-foreground sm:text-3xl lg:text-4xl">
-          {report.title}
-        </h1>
-        <p className="mt-2 text-sm text-muted-foreground">
-          {report.person} · {report.role} · Generated {report.generatedAt}
-        </p>
-        <p className="mt-4 text-sm leading-relaxed text-foreground sm:text-[15px]">
-          {report.headline}
-        </p>
+        {editing ? (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <FieldLabel>Title</FieldLabel>
+              <FieldInput
+                value={draft.title}
+                onChange={(value) => setDraft((c) => ({ ...c, title: value }))}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <FieldLabel>Subtitle</FieldLabel>
+                <FieldInput
+                  value={draft.subtitle}
+                  onChange={(value) => setDraft((c) => ({ ...c, subtitle: value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Period</FieldLabel>
+                <FieldInput
+                  value={draft.period}
+                  onChange={(value) => setDraft((c) => ({ ...c, period: value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Person</FieldLabel>
+                <FieldInput
+                  value={draft.person}
+                  onChange={(value) => setDraft((c) => ({ ...c, person: value }))}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Role</FieldLabel>
+                <FieldInput
+                  value={draft.role}
+                  onChange={(value) => setDraft((c) => ({ ...c, role: value }))}
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <FieldLabel>Headline</FieldLabel>
+              <TextArea
+                value={draft.headline}
+                onChange={(value) => setDraft((c) => ({ ...c, headline: value }))}
+                rows={3}
+              />
+            </div>
+          </div>
+        ) : (
+          <>
+            <p className="label-caps text-muted-foreground">{report.period}</p>
+            <h1 className="mt-1 font-display text-2xl tracking-tight text-foreground sm:text-3xl lg:text-4xl">
+              {report.title}
+            </h1>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {report.person} · {report.role} · Generated {report.generatedAt}
+            </p>
+            <p className="mt-4 text-sm leading-relaxed text-foreground sm:text-[15px]">
+              {report.headline}
+            </p>
+          </>
+        )}
       </header>
 
       {/* 01 Summary */}
       <Section step="01" title="Summary">
-        <p className="text-sm leading-relaxed text-foreground/90 sm:text-[15px]">
-          {report.executiveBrief}
-        </p>
-        <div className="mt-4 grid gap-3 sm:grid-cols-2">
-          <div className="border border-border bg-card px-3 py-3">
-            <p className="label-caps text-muted-foreground">Key insight</p>
-            <p className="mt-2 text-sm leading-relaxed text-foreground">
-              {report.keyInsight}
-            </p>
+        {editing ? (
+          <div className="space-y-4">
+            <div className="space-y-1.5">
+              <FieldLabel>Executive brief</FieldLabel>
+              <TextArea
+                value={draft.executiveBrief}
+                onChange={(value) =>
+                  setDraft((c) => ({ ...c, executiveBrief: value }))
+                }
+                rows={5}
+              />
+            </div>
+            <div className="space-y-1.5">
+              <FieldLabel>Key insight</FieldLabel>
+              <TextArea
+                value={draft.keyInsight}
+                onChange={(value) =>
+                  setDraft((c) => ({ ...c, keyInsight: value }))
+                }
+                rows={3}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <FieldLabel>Delivery unlock</FieldLabel>
+                <FieldInput
+                  value={draft.deliveryUnlock}
+                  onChange={(value) =>
+                    setDraft((c) => ({ ...c, deliveryUnlock: value }))
+                  }
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Impact once</FieldLabel>
+                <FieldInput
+                  value={draft.impactOnce}
+                  onChange={(value) =>
+                    setDraft((c) => ({ ...c, impactOnce: value }))
+                  }
+                />
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <FieldLabel>Improvements</FieldLabel>
+              <TextArea
+                value={draft.improvements}
+                onChange={(value) =>
+                  setDraft((c) => ({ ...c, improvements: value }))
+                }
+                rows={4}
+              />
+              <p className="text-xs text-muted-foreground">One item per line</p>
+            </div>
           </div>
-          <div className="border border-border bg-primary px-3 py-3 text-primary-foreground">
-            <p className="label-caps text-primary-foreground/70">
-              Delivery unlock
+        ) : (
+          <>
+            <p className="text-sm leading-relaxed text-foreground/90 sm:text-[15px]">
+              {report.executiveBrief}
             </p>
-            <p className="mt-2 text-sm font-semibold leading-relaxed">
-              {report.deliveryUnlock}
-            </p>
-            <p className="mt-2 text-xs text-primary-foreground/80">
-              {report.impactOnce}
-            </p>
-          </div>
-        </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div className="border border-border bg-card px-3 py-3">
+                <p className="label-caps text-muted-foreground">Key insight</p>
+                <p className="mt-2 text-sm leading-relaxed text-foreground">
+                  {report.keyInsight}
+                </p>
+              </div>
+              <div className="border border-border bg-primary px-3 py-3 text-primary-foreground">
+                <p className="label-caps text-primary-foreground/70">
+                  Delivery unlock
+                </p>
+                <p className="mt-2 text-sm font-semibold leading-relaxed">
+                  {report.deliveryUnlock}
+                </p>
+                <p className="mt-2 text-xs text-primary-foreground/80">
+                  {report.impactOnce}
+                </p>
+              </div>
+            </div>
+          </>
+        )}
       </Section>
 
       {/* 02 Snapshot */}
@@ -663,206 +819,179 @@ function ReportDetail({
         </div>
       </Section>
       </div>
+      )}
+
+      <DeleteConfirmDialog
+        open={confirmDelete}
+        onOpenChange={setConfirmDelete}
+        title="Delete report?"
+        description="This removes it from ~/.jarbas/reports. You cannot undo this."
+        deleting={deleting}
+        onConfirm={() => void handleDelete()}
+      />
     </div>
   );
 }
 
 export function ReportsPage() {
-  const [reports, setReports] = useState<WorkReport[]>(() => [...MOCK_REPORTS]);
+  const [reports, setReports] = useState<WorkReport[]>([]);
+  const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [presetId, setPresetId] = useState<string | "custom">("today");
-  const [startDate, setStartDate] = useState(() => toInputDate(new Date()));
-  const [endDate, setEndDate] = useState(() => toInputDate(new Date()));
-  const [generating, setGenerating] = useState(false);
-  const [status, setStatus] = useState<string | null>(null);
+  const [run, setRun] = useState<AnalysisRunMeta | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const refresh = useCallback(async (preferId?: string) => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const next = (await listAnalysisItems<WorkReport>("reports")).map(
+        normalizeWorkReport,
+      );
+      setReports(next);
+      if (preferId) setSelectedId(preferId);
+      return next;
+    } catch (error) {
+      console.error("Failed to load reports", error);
+      setLoadError(error instanceof Error ? error.message : String(error));
+      return [] as WorkReport[];
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  if (run) {
+    return (
+      <AnalysisRunView
+        meta={run}
+        onCancel={() => setRun(null)}
+        onErrorBack={() => setRun(null)}
+        onCompleted={(ids) => {
+          void refresh(ids[0]).then(() => {
+            setRun(null);
+          });
+        }}
+      />
+    );
+  }
 
   const selected = reports.find((report) => report.id === selectedId);
 
-  const rangeValid = useMemo(() => {
-    if (!startDate || !endDate) return false;
-    return startDate <= endDate;
-  }, [startDate, endDate]);
-
-  function applyPreset(preset: RangePreset) {
-    const { start, end } = preset.getRange();
-    setPresetId(preset.id);
-    setStartDate(toInputDate(start));
-    setEndDate(toInputDate(end));
-  }
-
-  function openGenerate() {
-    applyPreset(PRESETS[0]);
-    setStatus(null);
-    setOpen(true);
-  }
-
-  async function generateReport() {
-    if (!rangeValid) return;
-    setGenerating(true);
-    setStatus(null);
-    await new Promise((resolve) => window.setTimeout(resolve, 700));
-    const report = buildReportForRange(startDate, endDate);
-    setReports((current) => [report, ...current]);
-    setGenerating(false);
-    setOpen(false);
-    setSelectedId(report.id);
-  }
-
   if (selected) {
     return (
-      <ReportDetail report={selected} onBack={() => setSelectedId(null)} />
+      <ReportDetail
+        report={selected}
+        onBack={() => setSelectedId(null)}
+        onSaved={(next) => {
+          setReports((current) =>
+            current.map((item) => (item.id === next.id ? next : item)),
+          );
+        }}
+        onDeleted={() => {
+          setReports((current) =>
+            current.filter((item) => item.id !== selected.id),
+          );
+          setSelectedId(null);
+        }}
+      />
     );
   }
 
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-        <div className="min-w-0">
-          <p className="label-caps text-muted-foreground">Jarbas</p>
-          <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
+      <div className="min-w-0">
+        <p className="label-caps text-muted-foreground">Jarbas</p>
+        <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+          <h1 className="font-display text-3xl tracking-tight text-foreground sm:text-4xl">
             Reports
           </h1>
-          <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-            Cycle summaries of how work happened.
-          </p>
+          <Button
+            type="button"
+            className="shrink-0 rounded-none self-start sm:self-auto"
+            onClick={() => setOpen(true)}
+          >
+            <Sparkles className="size-3.5" />
+            Generate report
+          </Button>
         </div>
-        <Button
-          type="button"
-          className="shrink-0 rounded-none"
-          onClick={openGenerate}
-        >
-          <Sparkles className="size-3.5" />
-          Generate report
-        </Button>
+        <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
+          Cycle summaries of how work happened.
+        </p>
       </div>
 
-      <ul className="mt-10 divide-y divide-border border border-border bg-card">
-        {reports.map((report, index) => (
-          <li key={report.id}>
-            <button
-              type="button"
-              onClick={() => setSelectedId(report.id)}
-              className={cn(
-                "flex w-full items-start gap-4 px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5",
-                "animate-rise",
-              )}
-              style={{ animationDelay: `${index * 60}ms` }}
-            >
-              <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center border border-border bg-background text-muted-foreground">
-                <CalendarDays className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-sm font-semibold tracking-tight text-foreground">
-                  {report.title}
+      {loadError ? (
+        <p className="mt-8 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {loadError}
+        </p>
+      ) : null}
+
+      {loading ? (
+        <div className="mt-16 flex items-center justify-center gap-2 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          Loading reports…
+        </div>
+      ) : reports.length === 0 ? (
+        <div className="mt-10 border border-border bg-card px-5 py-10 text-center">
+          <p className="font-display text-xl tracking-tight text-foreground">
+            No reports yet
+          </p>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
+            Pick a timeframe and let Pi write a work report from your captured
+            activity.
+          </p>
+          <Button
+            type="button"
+            className="mt-6 rounded-none"
+            onClick={() => setOpen(true)}
+          >
+            <Sparkles className="size-3.5" />
+            Generate report
+          </Button>
+        </div>
+      ) : (
+        <ul className="mt-10 divide-y divide-border border border-border bg-card">
+          {reports.map((report, index) => (
+            <li key={report.id}>
+              <button
+                type="button"
+                onClick={() => setSelectedId(report.id)}
+                className={cn(
+                  "flex w-full items-start gap-4 px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5",
+                  "animate-rise",
+                )}
+                style={{ animationDelay: `${index * 60}ms` }}
+              >
+                <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center border border-border bg-background text-muted-foreground">
+                  <CalendarDays className="size-4" />
                 </span>
-                <span className="mt-1 block text-xs text-muted-foreground">
-                  {report.period} · {report.person}
+                <span className="min-w-0 flex-1">
+                  <span className="block text-sm font-semibold tracking-tight text-foreground">
+                    {report.title}
+                  </span>
+                  <span className="mt-1 block text-xs text-muted-foreground">
+                    {report.period}
+                    {report.person ? ` · ${report.person}` : ""}
+                  </span>
                 </span>
-              </span>
-            </button>
-          </li>
-        ))}
-      </ul>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="rounded-none sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Generate report</DialogTitle>
-            <DialogDescription>
-              Choose a timeframe from suggestions or set custom dates.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-5">
-            <div>
-              <p className="label-caps text-muted-foreground">Suggestions</p>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {PRESETS.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    onClick={() => applyPreset(preset)}
-                    className={cn(
-                      "border px-2.5 py-1.5 text-xs font-medium transition-colors",
-                      presetId === preset.id
-                        ? "border-foreground bg-foreground text-background"
-                        : "border-border bg-background text-foreground hover:bg-muted",
-                    )}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            <div>
-              <p className="label-caps text-muted-foreground">Custom range</p>
-              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label className="space-y-1.5">
-                  <span className="text-xs text-muted-foreground">Start</span>
-                  <Input
-                    type="date"
-                    value={startDate}
-                    onChange={(event) => {
-                      setPresetId("custom");
-                      setStartDate(event.target.value);
-                    }}
-                    className="rounded-none"
-                  />
-                </label>
-                <label className="space-y-1.5">
-                  <span className="text-xs text-muted-foreground">End</span>
-                  <Input
-                    type="date"
-                    value={endDate}
-                    onChange={(event) => {
-                      setPresetId("custom");
-                      setEndDate(event.target.value);
-                    }}
-                    className="rounded-none"
-                  />
-                </label>
-              </div>
-              {!rangeValid ? (
-                <p className="mt-2 text-xs text-destructive">
-                  End date must be on or after start date.
-                </p>
-              ) : (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  Selected · {formatRangeLabel(startDate, endDate)}
-                </p>
-              )}
-            </div>
-
-            {status ? (
-              <p className="border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
-                {status}
-              </p>
-            ) : null}
-          </div>
-
-          <DialogFooter className="gap-2 sm:justify-between">
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-none"
-              onClick={() => setOpen(false)}
-            >
-              Close
-            </Button>
-            <Button
-              type="button"
-              className="rounded-none"
-              disabled={!rangeValid || generating}
-              onClick={() => void generateReport()}
-            >
-              <Sparkles className="size-3.5" />
-              {generating ? "Generating…" : "Generate report"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <AnalyzeRangeDialog
+        open={open}
+        onOpenChange={setOpen}
+        kind="reports"
+        title="Generate report"
+        description="Pick a timeframe and model. Pi analyzes your capture and connected apps, then saves the report."
+        confirmLabel="Generate report"
+        onStarted={setRun}
+      />
     </div>
   );
 }

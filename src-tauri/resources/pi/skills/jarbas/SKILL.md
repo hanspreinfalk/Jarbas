@@ -28,6 +28,10 @@ For spoken/meeting context the user needs a separate source such as Granola.
 | `~/.jarbas/bin/composio` | App-owned Composio CLI entry (not `~/.composio`) |
 | `~/.jarbas/composio-cli/` | App-owned Composio CLI install tree |
 | `~/.jarbas/composio/` | App-owned Composio CLI cache / state |
+| `~/.jarbas/learnings/` | AI-generated learnings (one JSON file each) |
+| `~/.jarbas/opportunities/` | AI-generated opportunities (one JSON file each) |
+| `~/.jarbas/reports/` | AI-generated work reports (one JSON file each) |
+| `~/.jarbas/analysis-runs/` | Saved AI chat transcripts for analysis jobs |
 
 ## Dates
 

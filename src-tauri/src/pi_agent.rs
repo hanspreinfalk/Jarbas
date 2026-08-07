@@ -292,23 +292,34 @@ fn ensure_composio_cli_on_path() -> Result<(), String> {
     JarbasPaths::ensure_directories()?;
     remove_personal_composio_link()?;
 
-    let binary = JarbasPaths::composio_cli_binary();
-    let entry = JarbasPaths::composio_cli();
-    if is_app_owned_composio(&binary, &entry) {
+    #[cfg(windows)]
+    {
+        // Tool Router MCP does not need the local CLI binary.
+        let _ = install_app_owned_composio_cli();
         return Ok(());
     }
 
-    install_app_owned_composio_cli()?;
+    #[cfg(not(windows))]
+    {
+        let binary = JarbasPaths::composio_cli_binary();
+        let entry = JarbasPaths::composio_cli();
+        if is_app_owned_composio(&binary, &entry) {
+            return Ok(());
+        }
 
-    if !is_app_owned_composio(&binary, &entry) {
-        return Err(
-            "Composio CLI install finished but ~/.jarbas/bin/composio is missing or still points outside ~/.jarbas."
-                .into(),
-        );
+        install_app_owned_composio_cli()?;
+
+        if !is_app_owned_composio(&binary, &entry) {
+            return Err(
+                "Composio CLI install finished but ~/.jarbas/bin/composio is missing or still points outside ~/.jarbas."
+                    .into(),
+            );
+        }
+        Ok(())
     }
-    Ok(())
 }
 
+#[cfg(not(windows))]
 fn is_app_owned_composio(binary: &Path, entry: &Path) -> bool {
     if !binary.is_file() {
         return false;
@@ -366,36 +377,47 @@ fn remove_personal_composio_link() -> Result<(), String> {
 }
 
 fn install_app_owned_composio_cli() -> Result<(), String> {
-    let install_dir = JarbasPaths::composio_cli_dir();
-    let bin_dir = JarbasPaths::bin_dir();
-    std::fs::create_dir_all(&install_dir)
-        .map_err(|error| format!("Could not create {}: {error}", install_dir.display()))?;
-    std::fs::create_dir_all(&bin_dir)
-        .map_err(|error| format!("Could not create {}: {error}", bin_dir.display()))?;
-
-    // Official installer: downloads a self-contained binary into INSTALL_DIR
-    // and puts an entry point in BIN_DIR. Never touches the user's ~/.composio.
-    let status = Command::new("bash")
-        .arg("-lc")
-        .arg("curl -fsSL https://composio.dev/install | bash")
-        .env("COMPOSIO_INSTALL_DIR", &install_dir)
-        .env("COMPOSIO_BIN_DIR", &bin_dir)
-        .env("COMPOSIO_INSTALL_SHELL", "none")
-        .env("COMPOSIO_INSTALL_HELP", "0")
-        .env("COMPOSIO_INSTALL_PLUGINS", "0")
-        .env("COMPOSIO_QUIET", "1")
-        .env("HOME", std::env::var_os("HOME").unwrap_or_else(|| "/tmp".into()))
-        .status()
-        .map_err(|error| format!("Failed to run Composio installer: {error}"))?;
-
-    if !status.success() {
-        return Err(format!(
-            "Composio installer exited with status {}. Need network access to composio.dev.",
-            status.code().unwrap_or(-1)
-        ));
+    #[cfg(windows)]
+    {
+        // Local Composio CLI installer is bash-based; Ask/analysis use Tool Router MCP
+        // and do not require the binary on Windows.
+        eprintln!("[pi] skipping Composio CLI binary install on Windows");
+        return Ok(());
     }
 
-    Ok(())
+    #[cfg(not(windows))]
+    {
+        let install_dir = JarbasPaths::composio_cli_dir();
+        let bin_dir = JarbasPaths::bin_dir();
+        std::fs::create_dir_all(&install_dir)
+            .map_err(|error| format!("Could not create {}: {error}", install_dir.display()))?;
+        std::fs::create_dir_all(&bin_dir)
+            .map_err(|error| format!("Could not create {}: {error}", bin_dir.display()))?;
+
+        // Official installer: downloads a self-contained binary into INSTALL_DIR
+        // and puts an entry point in BIN_DIR. Never touches the user's ~/.composio.
+        let status = Command::new("bash")
+            .arg("-lc")
+            .arg("curl -fsSL https://composio.dev/install | bash")
+            .env("COMPOSIO_INSTALL_DIR", &install_dir)
+            .env("COMPOSIO_BIN_DIR", &bin_dir)
+            .env("COMPOSIO_INSTALL_SHELL", "none")
+            .env("COMPOSIO_INSTALL_HELP", "0")
+            .env("COMPOSIO_INSTALL_PLUGINS", "0")
+            .env("COMPOSIO_QUIET", "1")
+            .env("HOME", JarbasPaths::home())
+            .status()
+            .map_err(|error| format!("Failed to run Composio installer: {error}"))?;
+
+        if !status.success() {
+            return Err(format!(
+                "Composio installer exited with status {}. Need network access to composio.dev.",
+                status.code().unwrap_or(-1)
+            ));
+        }
+
+        Ok(())
+    }
 }
 
 fn write_pretty_json(path: &Path, value: &serde_json::Value) -> Result<(), String> {
@@ -431,16 +453,33 @@ pub fn resolve_resource(app: &AppHandle, relative: &str) -> Option<PathBuf> {
 
 /// Prefer the Node binary shipped inside the app bundle / resources tree.
 pub fn find_node(app: &AppHandle) -> Option<PathBuf> {
-    if let Some(path) = resolve_resource(app, "nodejs/bin/node") {
-        if path.is_file() {
-            return Some(path);
+    let relative_candidates = [
+        #[cfg(windows)]
+        "nodejs/bin/node.exe",
+        #[cfg(not(windows))]
+        "nodejs/bin/node",
+        // Dev/fallback names if a unix layout is checked out on Windows or vice versa.
+        "nodejs/bin/node",
+        "nodejs/bin/node.exe",
+    ];
+
+    for relative in relative_candidates {
+        if let Some(path) = resolve_resource(app, relative) {
+            if path.is_file() {
+                return Some(path);
+            }
         }
     }
 
     // Dev fallback: resources live next to the Tauri crate before bundling.
-    let manifest_node = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("resources/nodejs/bin/node");
-    manifest_node.is_file().then_some(manifest_node)
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/nodejs/bin");
+    for name in ["node.exe", "node"] {
+        let candidate = manifest.join(name);
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn find_npm(app: &AppHandle, node: &Path) -> Result<PathBuf, String> {
@@ -504,29 +543,13 @@ fn run_npm(node: &Path, npm: &Path, args: &[&str], cwd: &Path) -> Result<(), Str
     Err(summarize_npm_failure(output.status.code(), &stderr, &stdout))
 }
 
-fn augmented_path(node: &Path) -> String {
-    let existing = std::env::var("PATH").unwrap_or_default();
-    let mut parts: Vec<String> = existing
-        .split(':')
-        .filter(|part| !part.is_empty())
-        .map(str::to_string)
-        .collect();
-
+fn augmented_path(node: &Path) -> std::ffi::OsString {
+    let mut prefer = Vec::new();
     if let Some(bin) = node.parent() {
-        let bin = bin.display().to_string();
-        if !parts.iter().any(|part| part == &bin) {
-            parts.insert(0, bin);
-        }
+        prefer.push(bin.to_path_buf());
     }
-
-    // Keep a minimal PATH for child processes (no system Node assumed).
-    for extra in ["/usr/bin", "/bin"] {
-        if !parts.iter().any(|part| part == extra) {
-            parts.push(extra.to_string());
-        }
-    }
-
-    parts.join(":")
+    prefer.push(JarbasPaths::bin_dir());
+    crate::paths::child_path_env(&prefer)
 }
 
 fn summarize_npm_failure(status: Option<i32>, stderr: &str, stdout: &str) -> String {
