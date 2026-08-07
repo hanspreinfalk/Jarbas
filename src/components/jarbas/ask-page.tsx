@@ -4,6 +4,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from "react";
 import {
@@ -207,6 +208,125 @@ function formatToolArgs(args: unknown): string {
   }
 }
 
+function looksLikeJson(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return false;
+  if (
+    (trimmed.startsWith("{") && trimmed.endsWith("}")) ||
+    (trimmed.startsWith("[") && trimmed.endsWith("]"))
+  ) {
+    return true;
+  }
+  return /"\s*:/.test(trimmed);
+}
+
+function highlightJsonText(text: string) {
+  const nodes: ReactNode[] = [];
+  const pattern =
+    /("(?:\\.|[^"\\])*")(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?|[{}\[\],:]/g;
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+
+  while ((match = pattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      nodes.push(text.slice(lastIndex, match.index));
+    }
+
+    const [token, stringLiteral, colonAfter, keyword] = match;
+    if (stringLiteral !== undefined) {
+      if (colonAfter !== undefined) {
+        nodes.push(
+          <span key={key++} className="text-primary">
+            {stringLiteral}
+          </span>,
+        );
+        nodes.push(
+          <span key={key++} className="text-muted-foreground/70">
+            {colonAfter}
+          </span>,
+        );
+      } else {
+        nodes.push(
+          <span key={key++} className="text-emerald-700">
+            {stringLiteral}
+          </span>,
+        );
+      }
+    } else if (keyword !== undefined) {
+      nodes.push(
+        <span key={key++} className="text-sky-800">
+          {keyword}
+        </span>,
+      );
+    } else if (/^-?\d/.test(token)) {
+      nodes.push(
+        <span key={key++} className="text-amber-700">
+          {token}
+        </span>,
+      );
+    } else {
+      nodes.push(
+        <span key={key++} className="text-muted-foreground/70">
+          {token}
+        </span>,
+      );
+    }
+
+    lastIndex = match.index + token.length;
+  }
+
+  if (lastIndex < text.length) {
+    nodes.push(text.slice(lastIndex));
+  }
+
+  return nodes;
+}
+
+function ToolPayload({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}) {
+  const colored = looksLikeJson(text) ? highlightJsonText(text) : text;
+  return (
+    <pre
+      className={cn(
+        "max-h-48 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground",
+        className,
+      )}
+    >
+      {colored}
+    </pre>
+  );
+}
+
+function ToolGlyph({
+  running,
+  failed,
+}: {
+  running?: boolean;
+  failed?: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "mt-0.5 inline-grid shrink-0 grid-cols-2 gap-[2px] text-muted-foreground/70",
+        running && "animate-pulse text-muted-foreground",
+        failed && "text-destructive/80",
+      )}
+      aria-hidden
+    >
+      <span className="size-[3px] rounded-full bg-current" />
+      <span className="size-[3px] rounded-full bg-current" />
+      <span className="size-[3px] rounded-full bg-current" />
+      <span className="size-[3px] rounded-full bg-current" />
+    </span>
+  );
+}
+
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (value && typeof value === "object" && !Array.isArray(value)) {
     return value as Record<string, unknown>;
@@ -279,30 +399,6 @@ function toolDisplayTitle(tool: ToolCallState): string {
   return humanizeToolName(tool.name);
 }
 
-function ToolGlyph({
-  running,
-  failed,
-}: {
-  running?: boolean;
-  failed?: boolean;
-}) {
-  return (
-    <span
-      className={cn(
-        "mt-0.5 inline-grid shrink-0 grid-cols-2 gap-[2px] text-muted-foreground/70",
-        running && "animate-pulse text-muted-foreground",
-        failed && "text-destructive/80",
-      )}
-      aria-hidden
-    >
-      <span className="size-[3px] rounded-full bg-current" />
-      <span className="size-[3px] rounded-full bg-current" />
-      <span className="size-[3px] rounded-full bg-current" />
-      <span className="size-[3px] rounded-full bg-current" />
-    </span>
-  );
-}
-
 function ToolRow({ tool }: { tool: ToolCallState }) {
   const [open, setOpen] = useState(false);
   const title = toolDisplayTitle(tool);
@@ -340,15 +436,12 @@ function ToolRow({ tool }: { tool: ToolCallState }) {
       </button>
       {open && hasDetails ? (
         <div className="mt-1 mb-1.5 ml-[14px] space-y-2 border-l border-border/70 pl-3">
-          {input ? (
-            <pre className="max-h-40 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground">
-              {input}
-            </pre>
-          ) : null}
+          {input ? <ToolPayload text={input} className="max-h-40" /> : null}
           {output || tool.status === "running" ? (
-            <pre className="max-h-48 overflow-auto font-mono text-[11px] leading-relaxed whitespace-pre-wrap text-muted-foreground/90">
-              {output || "Running…"}
-            </pre>
+            <ToolPayload
+              text={output || "Running…"}
+              className="max-h-48 text-muted-foreground/90"
+            />
           ) : null}
         </div>
       ) : null}
@@ -397,14 +490,11 @@ function WorkedForDetails({
   return (
     <div className="min-w-0">
       {live ? (
-        <p className="inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground">
-          <ToolGlyph />
-          <span className="truncate tabular-nums">
-            {prefix} {durationLabel}
-            <span className="text-muted-foreground/70">
-              {" "}
-              · {toolCount} {toolCount === 1 ? "tool" : "tools"}
-            </span>
+        <p className="truncate text-[13px] text-muted-foreground tabular-nums">
+          {prefix} {durationLabel}
+          <span className="text-muted-foreground/70">
+            {" "}
+            · {toolCount} {toolCount === 1 ? "tool" : "tools"}
           </span>
         </p>
       ) : (
@@ -413,7 +503,6 @@ function WorkedForDetails({
           onClick={() => setOpen((current) => !current)}
           className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
         >
-          <ToolGlyph />
           <span className="truncate">
             {prefix} {durationLabel}
             <span className="text-muted-foreground/70">
@@ -867,6 +956,11 @@ export function AskPage() {
         message.content.trim() || hasTools || message.error || message.finishedAt,
       );
 
+    const showReply =
+      Boolean(message.content.trim()) ||
+      Boolean(message.error) ||
+      showThinking;
+
     return (
       <div className="flex w-full max-w-[92%] flex-col gap-3">
         {showWorkSummary ? (
@@ -875,6 +969,10 @@ export function AskPage() {
             tools={tools}
             live={isLive}
           />
+        ) : null}
+
+        {showWorkSummary && showReply ? (
+          <div className="border-t border-border/70" />
         ) : null}
 
         {showThinking ? (
