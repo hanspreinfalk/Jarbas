@@ -57,6 +57,30 @@ export async function getCaptureStorageStats(): Promise<CaptureStorageStats> {
   return invoke<CaptureStorageStats>("capture_storage_stats");
 }
 
+export type ResetJarbasMode = "full" | "range";
+
+export type ResetJarbasResult = {
+  mode: ResetJarbasMode | string;
+  deletedVideos: number;
+  deletedFrames: number;
+  deletedSnapshotDirs: number;
+  deletedAnalysisItems: number;
+  deletedAnalysisRuns: number;
+  message: string;
+};
+
+export async function resetJarbasData(options: {
+  mode: ResetJarbasMode;
+  startDate?: string;
+  endDate?: string;
+}): Promise<ResetJarbasResult> {
+  return invoke<ResetJarbasResult>("reset_jarbas_data", {
+    mode: options.mode,
+    startDate: options.startDate ?? null,
+    endDate: options.endDate ?? null,
+  });
+}
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
   const units = ["B", "KB", "MB", "GB", "TB"] as const;

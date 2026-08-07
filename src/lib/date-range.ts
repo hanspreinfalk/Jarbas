@@ -70,6 +70,26 @@ export const DATE_RANGE_PRESETS: RangePreset[] = [
     },
   },
   {
+    id: "last-14",
+    label: "Last 14 days",
+    getRange: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 13);
+      return { start: startOfDay(start), end: endOfDay(end) };
+    },
+  },
+  {
+    id: "last-30",
+    label: "Last 30 days",
+    getRange: () => {
+      const end = new Date();
+      const start = new Date();
+      start.setDate(start.getDate() - 29);
+      return { start: startOfDay(start), end: endOfDay(end) };
+    },
+  },
+  {
     id: "last-week",
     label: "Last week",
     getRange: () => {

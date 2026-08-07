@@ -36,9 +36,24 @@ import {
   formatBytes,
   formatFrameCount,
   getCaptureStorageStats,
+  resetJarbasData,
   screenpipe,
   type CaptureStorageStats,
+  type ResetJarbasResult,
 } from "@/lib/screenpipe";
+import {
+  DATE_RANGE_PRESETS,
+  formatRangeLabel,
+  toInputDate,
+} from "@/lib/date-range";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 type PermissionId = "screen-recording" | "accessibility";
@@ -223,12 +238,88 @@ export function SettingsPage() {
   const [storage, setStorage] = useState<CaptureStorageStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [savingProvider, setSavingProvider] = useState<LlmProvider | null>(null);
+  const [rangeOpen, setRangeOpen] = useState(false);
+  const [fullOpen, setFullOpen] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
+  const [resetNotice, setResetNotice] = useState<string | null>(null);
+  const [presetId, setPresetId] = useState<string | "custom">("last-14");
+  const [startDate, setStartDate] = useState(() => {
+    const start = new Date();
+    start.setDate(start.getDate() - 13);
+    return toInputDate(start);
+  });
+  const [endDate, setEndDate] = useState(() => toInputDate(new Date()));
   const [granted, setGranted] = useState<Record<PermissionId, boolean>>({
     "screen-recording": false,
     accessibility: false,
   });
   const [accessibilityInfo, setAccessibilityInfo] =
     useState<AccessibilityPermissionStatus | null>(null);
+
+  const refreshStorage = useCallback(async () => {
+    try {
+      setStorage(await getCaptureStorageStats());
+    } catch {
+      setStorage({ root: "~/.jarbas", bytes: 0, frames: 0 });
+    }
+  }, []);
+
+  async function stopCaptureQuietly() {
+    try {
+      await screenpipe.stop();
+    } catch {
+      // Best effort — reset can still proceed if capture wasn't running.
+    }
+  }
+
+  async function handleRangeDelete() {
+    if (!startDate || !endDate || startDate > endDate || resetting) return;
+    setResetting(true);
+    setResetError(null);
+    setResetNotice(null);
+    try {
+      await stopCaptureQuietly();
+      const result: ResetJarbasResult = await resetJarbasData({
+        mode: "range",
+        startDate,
+        endDate,
+      });
+      setRangeOpen(false);
+      setResetNotice(result.message);
+      await refreshStorage();
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResetting(false);
+    }
+  }
+
+  async function handleFullReset() {
+    if (resetting) return;
+    setResetting(true);
+    setResetError(null);
+    setResetNotice(null);
+    try {
+      await stopCaptureQuietly();
+      const result: ResetJarbasResult = await resetJarbasData({ mode: "full" });
+      setFullOpen(false);
+      setResetNotice(result.message);
+      await refreshStorage();
+      // Pi tree was wiped — kick off a fresh install.
+      void ensurePiAgentInstalled(true).catch(() => undefined);
+      void getPiAgentStatus()
+        .then(setPiInfo)
+        .catch(() => undefined);
+      void getLlmSettings()
+        .then(setLlmSettings)
+        .catch(() => undefined);
+    } catch (error) {
+      setResetError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setResetting(false);
+    }
+  }
 
   const refreshPermissions = useCallback(async () => {
     const [screenOk, accessibilityStatus] = await Promise.all([
@@ -272,20 +363,8 @@ export function SettingsPage() {
   }, [refreshPermissions]);
 
   useEffect(() => {
-    let cancelled = false;
-    void getCaptureStorageStats()
-      .then((stats) => {
-        if (!cancelled) setStorage(stats);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setStorage({ root: "~/.jarbas", bytes: 0, frames: 0 });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    void refreshStorage();
+  }, [refreshStorage]);
 
   useEffect(() => {
     let cancelled = false;
@@ -563,8 +642,213 @@ export function SettingsPage() {
               </p>
             </div>
           </div>
+
+          <div className="border-t border-border px-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Delete capture videos, frames, snapshots, and analysis for a date
+              range — or wipe the whole ~/.jarbas folder.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-none"
+                onClick={() => {
+                  setResetError(null);
+                  setRangeOpen(true);
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                Delete by range
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-none text-destructive hover:bg-destructive/5 hover:text-destructive"
+                onClick={() => {
+                  setResetError(null);
+                  setFullOpen(true);
+                }}
+              >
+                <Trash2 className="size-3.5" />
+                Reset all local data
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="rounded-none text-muted-foreground"
+                onClick={() => void refreshStorage()}
+              >
+                <RefreshCw className="size-3.5" />
+                Refresh
+              </Button>
+            </div>
+            {resetNotice ? (
+              <p className="mt-3 border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                {resetNotice}
+              </p>
+            ) : null}
+            {resetError ? (
+              <p className="mt-3 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {resetError}
+              </p>
+            ) : null}
+          </div>
         </div>
       </section>
+
+      <Dialog open={rangeOpen} onOpenChange={setRangeOpen}>
+        <DialogContent className="rounded-none sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Delete data by range</DialogTitle>
+            <DialogDescription>
+              Removes videos, frames, snapshots, and learnings / opportunities /
+              reports that fall in this range. Keeps API keys and assistant
+              install.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-1.5">
+              {DATE_RANGE_PRESETS.filter((preset) =>
+                ["last-7", "last-14", "last-30", "this-month", "today"].includes(
+                  preset.id,
+                ),
+              ).map((preset) => (
+                <button
+                  key={preset.id}
+                  type="button"
+                  className={cn(
+                    "border px-2.5 py-1 text-xs transition-colors",
+                    presetId === preset.id
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                  onClick={() => {
+                    const range = preset.getRange();
+                    setPresetId(preset.id);
+                    setStartDate(toInputDate(range.start));
+                    setEndDate(toInputDate(range.end));
+                  }}
+                >
+                  {preset.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                className={cn(
+                  "border px-2.5 py-1 text-xs transition-colors",
+                  presetId === "custom"
+                    ? "border-primary bg-primary text-primary-foreground"
+                    : "border-border bg-background text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setPresetId("custom")}
+              >
+                Custom
+              </button>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-1.5">
+                <p className="label-caps text-muted-foreground">Start</p>
+                <Input
+                  type="date"
+                  value={startDate}
+                  onChange={(event) => {
+                    setPresetId("custom");
+                    setStartDate(event.target.value);
+                  }}
+                  className="rounded-none"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <p className="label-caps text-muted-foreground">End</p>
+                <Input
+                  type="date"
+                  value={endDate}
+                  onChange={(event) => {
+                    setPresetId("custom");
+                    setEndDate(event.target.value);
+                  }}
+                  className="rounded-none"
+                />
+              </div>
+            </div>
+
+            <p className="text-sm text-muted-foreground">
+              Will delete: {formatRangeLabel(startDate, endDate)}
+            </p>
+            {resetError ? (
+              <p className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {resetError}
+              </p>
+            ) : null}
+          </div>
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              disabled={resetting}
+              onClick={() => setRangeOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-none"
+              disabled={
+                resetting || !startDate || !endDate || startDate > endDate
+              }
+              onClick={() => void handleRangeDelete()}
+            >
+              {resetting ? "Deleting…" : "Delete range"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={fullOpen} onOpenChange={setFullOpen}>
+        <DialogContent className="rounded-none sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Reset all local data?</DialogTitle>
+            <DialogDescription>
+              This deletes everything under ~/.jarbas — capture, analysis,
+              assistant install, and API keys. You cannot undo this.
+            </DialogDescription>
+          </DialogHeader>
+          {resetError ? (
+            <p className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {resetError}
+            </p>
+          ) : null}
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              disabled={resetting}
+              onClick={() => setFullOpen(false)}
+            >
+              Keep
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-none"
+              disabled={resetting}
+              onClick={() => void handleFullReset()}
+            >
+              {resetting ? "Resetting…" : "Delete everything"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,4 +1,5 @@
 mod composio;
+mod data_reset;
 mod llm_settings;
 mod paths;
 mod pi_agent;
@@ -231,6 +232,7 @@ pub fn run() {
             screenpipe::screenpipe_identify,
             screenpipe::capture_last_session,
             screenpipe::capture_storage_stats,
+            data_reset::reset_jarbas_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

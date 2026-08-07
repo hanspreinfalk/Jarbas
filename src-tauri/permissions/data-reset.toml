@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-reset-jarbas-data"
+description = "Allows wiping or trimming local data under ~/.jarbas."
+commands.allow = ["reset_jarbas_data"]

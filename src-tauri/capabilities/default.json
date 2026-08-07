@@ -37,6 +37,7 @@
     "allow-screenpipe-events",
     "allow-screenpipe-identify",
     "allow-capture-last-session",
-    "allow-capture-storage-stats"
+    "allow-capture-storage-stats",
+    "allow-reset-jarbas-data"
   ]
 }
