@@ -1,0 +1,4 @@
+[[permission]]
+identifier = "allow-sync-org-seat-limit"
+description = "Allows syncing an Organization membership cap to the active Clerk Billing plan."
+commands.allow = ["sync_org_seat_limit"]

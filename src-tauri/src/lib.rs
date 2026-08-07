@@ -1,3 +1,4 @@
+mod clerk_billing;
 mod composio;
 mod data_reset;
 mod llm_settings;
@@ -260,6 +261,7 @@ pub fn run() {
             privacy_settings::check_screen_permission,
             set_composio_api_key,
             list_composio_toolkits,
+            clerk_billing::sync_org_seat_limit,
             composio::list_composio_connected_accounts,
             composio::create_composio_connect_link,
             composio::delete_composio_connected_account,

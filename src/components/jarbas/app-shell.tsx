@@ -19,6 +19,7 @@ import { AnalysisRunBanner } from "@/components/jarbas/analysis-run-banner";
 import { AnalysisRunProvider } from "@/components/jarbas/analysis-run-provider";
 import { AppHeaderActions } from "@/components/jarbas/app-header-actions";
 import { AskPage } from "@/components/jarbas/ask-page";
+import { BillingPage } from "@/components/jarbas/billing-page";
 import { ConnectorsPage } from "@/components/jarbas/connectors-page";
 import { InsightsPage } from "@/components/jarbas/insights-page";
 import { MultiTeamAnalysisPage } from "@/components/jarbas/multi-team-analysis-page";
@@ -200,6 +201,8 @@ function AppShellInner() {
               <MultiTeamAnalysisPage />
             ) : activeId === "redactions" ? (
               <RedactionsPage onNavigate={setActiveId} />
+            ) : activeId === "billing" ? (
+              <BillingPage />
             ) : (
               <SettingsPage onNavigate={setActiveId} />
             )}

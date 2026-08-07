@@ -4,6 +4,7 @@ import {
   AudioLines,
   BookOpen,
   // Bot,
+  CreditCard,
   FileBarChart,
   MessageSquare,
   Network,
@@ -21,6 +22,7 @@ export type AppTabId =
   | "observability"
   | "connectors"
   | "settings"
+  | "billing"
   | "redactions"
   | "ask"
   | "multi-team-analysis";
@@ -44,6 +46,7 @@ export const APP_PAGE_LABELS: Record<AppTabId, string> = {
   agents: "Agents",
   observability: "Observability",
   settings: "Settings",
+  billing: "Pricing / Billing",
   redactions: "Redactions",
   "multi-team-analysis": "Team analysis",
 };
@@ -99,6 +102,11 @@ export const APP_TABS: AppTab[] = [
     id: "settings",
     label: "Settings",
     icon: Settings,
+  },
+  {
+    id: "billing",
+    label: "Pricing / Billing",
+    icon: CreditCard,
   },
 ];
 

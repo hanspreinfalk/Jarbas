@@ -33,3 +33,7 @@ src-tauri/resources/ffmpeg/
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright
+.playwright
+.playwright-cli

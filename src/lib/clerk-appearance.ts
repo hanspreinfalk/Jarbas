@@ -49,15 +49,20 @@ export const jarbasClerkAppearance = {
     socialButtonsBlockButtonText: "font-medium!",
     dividerLine: "bg-[#e6e4dc]!",
     dividerText: "text-[#5c5c66]!",
-    footer: "hidden!",
-    footerAction: "hidden!",
-    footerActionLink: "text-[#080870]! font-medium!",
+    // Do not hide global `footer` / `footerAction` — that also kills Checkout drawer CTAs.
+    footerPages: "hidden!",
     identityPreviewEditButton: "rounded-none! text-[#080870]!",
     badge: "rounded-none! border! border-[#e6e4dc]! bg-[#f7f5ee]! text-[#5c5c66]!",
     avatarBox: "rounded-none!",
     avatarImage: "rounded-none!",
     userPreviewMainIdentifier: "text-sm! font-semibold! text-[#0a0a0a]!",
     userPreviewSecondaryIdentifier: "text-[11px]! text-[#5c5c66]!",
+
+    // Keep billing checkout drawers above the Tauri shell chrome.
+    drawerBackdrop: "z-[200]!",
+    drawerRoot: "z-[210]!",
+    drawerContent: "rounded-none! border! border-[#e6e4dc]! shadow-none!",
+    drawerFooter: "rounded-none!",
 
     userButtonBox: "w-full!",
     userButtonTrigger: "w-full! rounded-none! focus:shadow-none! focus:ring-0!",
