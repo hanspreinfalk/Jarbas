@@ -117,6 +117,11 @@ impl JarbasPaths {
         Self::root().join("composio")
     }
 
+    /// Cached Composio API key synced from Convex (packaged builds).
+    pub fn composio_api_key_file() -> PathBuf {
+        Self::composio_home().join("api_key")
+    }
+
     /// Composio Universal CLI binary symlink / install location for Ask.
     pub fn bin_dir() -> PathBuf {
         Self::root().join("bin")

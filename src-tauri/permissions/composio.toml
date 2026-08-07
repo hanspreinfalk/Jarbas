@@ -17,3 +17,8 @@ commands.allow = ["create_composio_connect_link"]
 identifier = "allow-delete-composio-connected-account"
 description = "Allows deleting a Composio connected account."
 commands.allow = ["delete_composio_connected_account"]
+
+[[permission]]
+identifier = "allow-set-composio-api-key"
+description = "Allows caching the Composio API key synced from Convex on this device."
+commands.allow = ["set_composio_api_key"]

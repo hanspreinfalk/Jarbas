@@ -35,10 +35,64 @@ pub(crate) fn load_env() {
     let _ = dotenvy::dotenv();
 }
 
+/// Resolve Composio API key: process env → ~/.jarbas cache (from Convex) → .env.local.
 pub(crate) fn composio_api_key() -> Result<String, String> {
     load_env();
-    std::env::var("COMPOSIO_API_KEY")
-        .map_err(|_| "COMPOSIO_API_KEY is not set. Add it to .env.local in the project root.".into())
+
+    if let Ok(key) = std::env::var("COMPOSIO_API_KEY") {
+        let trimmed = key.trim().to_string();
+        if !trimmed.is_empty() {
+            return Ok(trimmed);
+        }
+    }
+
+    if let Ok(cached) = std::fs::read_to_string(paths::JarbasPaths::composio_api_key_file()) {
+        let trimmed = cached.trim().to_string();
+        if !trimmed.is_empty() {
+            // Keep child processes (Ask MCP) able to expand ${COMPOSIO_API_KEY}.
+            unsafe {
+                std::env::set_var("COMPOSIO_API_KEY", &trimmed);
+            }
+            return Ok(trimmed);
+        }
+    }
+
+    Err(
+        "COMPOSIO_API_KEY is not available. Sign in so Jarbas can load it from Convex, or add it to .env.local for local dev."
+            .into(),
+    )
+}
+
+/// Persist a Composio API key synced from Convex for this device.
+#[tauri::command]
+fn set_composio_api_key(api_key: String) -> Result<bool, String> {
+    let trimmed = api_key.trim().to_string();
+    if trimmed.is_empty() {
+        return Err("Composio API key is empty".into());
+    }
+
+    paths::JarbasPaths::ensure_directories()
+        .map_err(|error| format!("Could not create Jarbas directories: {error}"))?;
+
+    let path = paths::JarbasPaths::composio_api_key_file();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    }
+    std::fs::write(&path, format!("{trimmed}\n"))
+        .map_err(|error| format!("Could not write {}: {error}", path.display()))?;
+
+    unsafe {
+        std::env::set_var("COMPOSIO_API_KEY", &trimmed);
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+    }
+
+    Ok(true)
 }
 
 #[tauri::command]
@@ -204,6 +258,7 @@ pub fn run() {
             privacy_settings::open_privacy_settings,
             privacy_settings::check_accessibility_permission,
             privacy_settings::check_screen_permission,
+            set_composio_api_key,
             list_composio_toolkits,
             composio::list_composio_connected_accounts,
             composio::create_composio_connect_link,

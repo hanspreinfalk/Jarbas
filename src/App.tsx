@@ -9,6 +9,7 @@ import {
   useSession,
 } from "@clerk/clerk-react";
 import { ConvexUserSync } from "@/components/ConvexUserSync";
+import { ComposioKeySync } from "@/components/ComposioKeySync";
 import { ClearStorageOnSignOut } from "@/components/ClearStorageOnSignOut";
 import { AppShell } from "@/components/jarbas/app-shell";
 import { AuthGate } from "@/components/jarbas/auth-gate";
@@ -103,6 +104,7 @@ function App() {
 
         <SignedIn treatPendingAsSignedOut={false}>
           <ConvexUserSync />
+          <ComposioKeySync />
           <CompanyEmailGate>
             <SignedInGate />
           </CompanyEmailGate>

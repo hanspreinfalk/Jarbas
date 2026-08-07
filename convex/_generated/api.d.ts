@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as composio from "../composio.js";
 import type * as reports from "../reports.js";
 import type * as user from "../user.js";
 
@@ -18,6 +19,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  composio: typeof composio;
   reports: typeof reports;
   user: typeof user;
 }>;
