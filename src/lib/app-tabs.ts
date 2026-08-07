@@ -1,9 +1,9 @@
 import type { ComponentType } from "react";
 import {
-  Activity,
+  // Activity,
   AudioLines,
   BookOpen,
-  Bot,
+  // Bot,
   FileBarChart,
   MessageSquare,
   Network,
@@ -85,16 +85,16 @@ export const APP_TABS: AppTab[] = [
     icon: Network,
     adminOnly: true,
   },
-  {
-    id: "agents",
-    label: "Agents",
-    icon: Bot,
-  },
-  {
-    id: "observability",
-    label: "Observability",
-    icon: Activity,
-  },
+  // {
+  //   id: "agents",
+  //   label: "Agents",
+  //   icon: Bot,
+  // },
+  // {
+  //   id: "observability",
+  //   label: "Observability",
+  //   icon: Activity,
+  // },
   {
     id: "settings",
     label: "Settings",
