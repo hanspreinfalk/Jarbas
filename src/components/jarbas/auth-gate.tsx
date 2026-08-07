@@ -562,9 +562,6 @@ export function AuthGate() {
                   <GoogleIcon className="size-4" />
                   Continue with Google
                 </Button>
-                <p className="text-center text-xs text-muted-foreground">
-                  Use a Google Workspace / company account, not personal Gmail.
-                </p>
 
                 <div className="flex items-center gap-3">
                   <div className="h-px flex-1 bg-border" />
