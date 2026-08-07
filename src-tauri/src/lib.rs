@@ -131,9 +131,12 @@ pub fn run() {
         .manage(pi_agent::PiAgentState::default())
         .manage(pi_chat::AskChatState::default())
         .setup(|app| {
-            screenpipe::init_host(app).map_err(|error| {
-                Box::<dyn std::error::Error>::from(error)
-            })?;
+            // Never return Err from setup on macOS: Tauri panics inside
+            // tao's did_finish_launching (extern "C"), which becomes
+            // panic_cannot_unwind → SIGABRT. Capture init failure instead.
+            if let Err(error) = screenpipe::init_host(app) {
+                eprintln!("capture host init failed: {error}");
+            }
             pi_agent::spawn_ensure_installed(app.handle().clone(), false);
             Ok(())
         })

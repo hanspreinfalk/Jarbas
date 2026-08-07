@@ -1,12 +1,12 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "jarbas",
+  "productName": "Jarbas",
   "version": "0.1.0",
   "identifier": "com.hanspreinfalk.jarbas",
   "build": {
-    "beforeDevCommand": "npm run fetch-node && npm run dev",
+    "beforeDevCommand": "npm run fetch-node && npm run fetch-ffmpeg && npm run stage-screenpipe && npm run dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run fetch-node && npm run build",
+    "beforeBuildCommand": "npm run fetch-node && npm run fetch-ffmpeg && npm run stage-screenpipe && npm run build",
     "frontendDist": "../dist"
   },
   "app": {
@@ -33,7 +33,16 @@
     ],
     "resources": [
       "resources/nodejs/",
-      "resources/pi/"
-    ]
+      "resources/pi/",
+      "resources/screenpipe/",
+      "resources/ffmpeg/"
+    ],
+    "macOS": {
+      "entitlements": "entitlements.plist",
+      "exceptionDomain": "",
+      "frameworks": [],
+      "providerShortName": null,
+      "signingIdentity": null
+    }
   }
 }

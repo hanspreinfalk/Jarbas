@@ -20,6 +20,8 @@ dist-ssr
 # Bundled Node runtime (fetched by `npm run fetch-node`)
 .cache/
 src-tauri/resources/nodejs/
+src-tauri/resources/screenpipe/
+src-tauri/resources/ffmpeg/
 
 # Editor directories and files
 .vscode/*

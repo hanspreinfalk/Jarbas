@@ -5,7 +5,7 @@ import {
   type ScreenpipeTauriClient,
 } from "@screenpipe/sdk/tauri";
 
-/** Thin Jarbas host binding for `@screenpipe/sdk`. Capture lands in ~/.jarbas. */
+/** Thin Jarbas host binding for `@screenpipe/sdk`. Videos land in ~/.jarbas/videos. */
 export const screenpipe: ScreenpipeTauriClient = createScreenpipeTauriClient({
   appName: "jarbas",
   telemetry: false,
@@ -22,7 +22,7 @@ export const screenpipe: ScreenpipeTauriClient = createScreenpipeTauriClient({
   },
 });
 
-/** Start options: `dataDir` is forced on the Rust side to ~/.jarbas. */
+/** Start options: `dataDir` / `outputDir` are forced on the Rust side. */
 export const JARBAS_CAPTURE_START: ScreenpipeTauriStartOptions = {
   filenamePrefix: "jarbas",
   uiCapture: {

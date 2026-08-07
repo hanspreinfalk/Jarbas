@@ -8,9 +8,12 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "fetch-node": "bash scripts/fetch-bundled-node.sh",
+    "fetch-ffmpeg": "bash scripts/fetch-bundled-ffmpeg.sh",
+    "stage-screenpipe": "bash scripts/stage-screenpipe-sdk.sh",
     "tauri": "tauri",
-    "tauri:dev": "npm run fetch-node && tauri dev",
-    "tauri:build": "npm run fetch-node && tauri build"
+    "tauri:dev": "npm run fetch-node && npm run fetch-ffmpeg && npm run stage-screenpipe && tauri dev",
+    "tauri:build": "npm run fetch-node && npm run fetch-ffmpeg && npm run stage-screenpipe && tauri build",
+    "tauri:dmg": "bash scripts/tauri-build-dmg.sh"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

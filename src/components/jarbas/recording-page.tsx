@@ -109,7 +109,8 @@ export function RecordingPage() {
         Recording
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Record how you work. Screen and accessibility data write to ~/.jarbas.
+        Record how you work. Videos go to ~/.jarbas/videos; accessibility data
+        to ~/.jarbas.
       </p>
 
       <section className="mt-10 border border-border bg-card">
@@ -182,7 +183,7 @@ export function RecordingPage() {
           </div>
           <div className="bg-card px-4 py-3">
             <p className="label-caps text-muted-foreground">Output</p>
-            <p className="mt-1 text-sm text-foreground">~/.jarbas</p>
+            <p className="mt-1 text-sm text-foreground">~/.jarbas/videos</p>
           </div>
           <div className="bg-card px-4 py-3">
             <p className="label-caps text-muted-foreground">Last session</p>

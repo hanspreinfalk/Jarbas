@@ -291,12 +291,29 @@ fn write_pretty_json(path: &Path, value: &serde_json::Value) -> Result<(), Strin
         .map_err(|error| format!("Could not write {}: {error}", path.display()))
 }
 
+/// Resolve a path under the app resource dir.
+///
+/// Tauri copies config entries like `resources/nodejs/` to
+/// `Contents/Resources/resources/nodejs/...`, so we try both the short name
+/// (`nodejs/...`) and the prefixed name (`resources/nodejs/...`).
+pub fn resolve_resource(app: &AppHandle, relative: &str) -> Option<PathBuf> {
+    let candidates = [
+        relative.to_string(),
+        format!("resources/{relative}"),
+    ];
+    for candidate in candidates {
+        if let Ok(path) = app.path().resolve(&candidate, BaseDirectory::Resource) {
+            if path.exists() {
+                return Some(path);
+            }
+        }
+    }
+    None
+}
+
 /// Prefer the Node binary shipped inside the app bundle / resources tree.
 pub fn find_node(app: &AppHandle) -> Option<PathBuf> {
-    if let Ok(path) = app
-        .path()
-        .resolve("nodejs/bin/node", BaseDirectory::Resource)
-    {
+    if let Some(path) = resolve_resource(app, "nodejs/bin/node") {
         if path.is_file() {
             return Some(path);
         }
@@ -309,10 +326,7 @@ pub fn find_node(app: &AppHandle) -> Option<PathBuf> {
 }
 
 fn find_npm(app: &AppHandle, node: &Path) -> Result<PathBuf, String> {
-    if let Ok(path) = app
-        .path()
-        .resolve("nodejs/lib/node_modules/npm/bin/npm-cli.js", BaseDirectory::Resource)
-    {
+    if let Some(path) = resolve_resource(app, "nodejs/lib/node_modules/npm/bin/npm-cli.js") {
         if path.is_file() {
             return Ok(path);
         }

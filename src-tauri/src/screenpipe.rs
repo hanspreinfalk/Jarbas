@@ -1,7 +1,7 @@
 //! Host for `@screenpipe/sdk` via its Node JSON-line bridge.
 //!
 //! Capture always writes under `~/.jarbas`:
-//! - MP4 sessions in that root
+//! - MP4 sessions in `~/.jarbas/videos`
 //! - paired accessibility / UI rows in `~/.jarbas/db.sqlite` (+ `data/`)
 
 use crate::paths::JarbasPaths;
@@ -33,7 +33,12 @@ struct HostPaths {
     node: PathBuf,
     sdk_root: PathBuf,
     bridge: PathBuf,
-    capture_root: PathBuf,
+    /// Accessibility DB + `data/` snapshots (`~/.jarbas`).
+    data_dir: PathBuf,
+    /// MP4 session files (`~/.jarbas/videos`).
+    videos_dir: PathBuf,
+    /// Directory containing `ffmpeg` (and optionally `ffprobe`), prepended to PATH.
+    ffmpeg_bin_dir: Option<PathBuf>,
 }
 
 struct BridgeChild {
@@ -111,24 +116,29 @@ impl CaptureHost {
 
     fn paths_info(&self) -> CapturePathsInfo {
         CapturePathsInfo {
-            output_dir: display(&self.paths.capture_root),
-            data_dir: display(&self.paths.capture_root),
+            output_dir: display(&self.paths.videos_dir),
+            data_dir: display(&self.paths.data_dir),
             sdk_root: display(&self.paths.sdk_root),
             bridge_path: display(&self.paths.bridge),
             node_bin: display(&self.paths.node),
         }
     }
 
-    /// Force capture into `~/.jarbas` and always enable paired accessibility.
+    /// Force videos into `~/.jarbas/videos` and accessibility data into `~/.jarbas`.
     fn start_params(&self, options: Option<Value>) -> Value {
         let mut map = match options {
             Some(Value::Object(map)) => map,
             _ => Map::new(),
         };
 
-        let root = display(&self.paths.capture_root);
-        map.insert("outputDir".into(), Value::String(root.clone()));
-        map.insert("dataDir".into(), Value::String(root));
+        map.insert(
+            "outputDir".into(),
+            Value::String(display(&self.paths.videos_dir)),
+        );
+        map.insert(
+            "dataDir".into(),
+            Value::String(display(&self.paths.data_dir)),
+        );
         if !map.contains_key("filenamePrefix") && !map.contains_key("filename") {
             map.insert("filenamePrefix".into(), Value::String("jarbas".into()));
         }
@@ -202,9 +212,13 @@ impl CaptureHost {
         command
             .arg(&self.paths.bridge)
             .env("SCREENPIPE_SDK_ROOT", &self.paths.sdk_root)
-            .env("SCREENPIPE_OUTPUT_DIR", &self.paths.capture_root)
+            .env("SCREENPIPE_OUTPUT_DIR", &self.paths.videos_dir)
             .env("SCREENPIPE_SDK_APP_NAME", "jarbas")
             .env("SCREENPIPE_SDK_TELEMETRY", "0")
+            .env(
+                "PATH",
+                path_with_ffmpeg_first(self.paths.ffmpeg_bin_dir.as_deref()),
+            )
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -248,33 +262,104 @@ fn display(path: &Path) -> String {
     path.to_string_lossy().into_owned()
 }
 
-fn resolve_sdk_root() -> PathBuf {
+fn resolve_sdk_root(app: &tauri::App) -> Result<PathBuf, String> {
     if let Ok(from_env) = std::env::var("SCREENPIPE_SDK_ROOT") {
-        return PathBuf::from(from_env);
+        let path = PathBuf::from(from_env);
+        if path.is_dir() {
+            return Ok(path);
+        }
+        return Err(format!(
+            "SCREENPIPE_SDK_ROOT does not exist: {}",
+            path.display()
+        ));
     }
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+
+    // Bundled layout (see scripts/stage-screenpipe-sdk.sh):
+    //   Contents/Resources/resources/screenpipe/node_modules/@screenpipe/sdk
+    if let Some(path) =
+        pi_agent::resolve_resource(app.handle(), "screenpipe/node_modules/@screenpipe/sdk")
+    {
+        if path.is_dir() {
+            return Ok(path);
+        }
+    }
+
+    // Dev fallback: workspace node_modules next to the Tauri crate.
+    let manifest_sdk = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap_or_else(|| Path::new("."))
-        .join("node_modules/@screenpipe/sdk")
+        .join("node_modules/@screenpipe/sdk");
+    if manifest_sdk.is_dir() {
+        return Ok(manifest_sdk);
+    }
+
+    Err(
+        "Capture SDK is missing from this build. Rebuild with `npm run tauri:dmg`."
+            .into(),
+    )
+}
+
+fn resolve_ffmpeg_bin_dir(app: &tauri::App) -> Option<PathBuf> {
+    if let Ok(from_env) = std::env::var("JARBAS_FFMPEG_DIR") {
+        let path = PathBuf::from(from_env);
+        if path.join("ffmpeg").is_file() {
+            return Some(path);
+        }
+    }
+
+    // Bundled: Contents/Resources/resources/ffmpeg/bin/ffmpeg
+    if let Some(ffmpeg) = pi_agent::resolve_resource(app.handle(), "ffmpeg/bin/ffmpeg") {
+        if ffmpeg.is_file() {
+            return ffmpeg.parent().map(|p| p.to_path_buf());
+        }
+    }
+
+    // Dev fallback: src-tauri/resources/ffmpeg/bin/ffmpeg
+    let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("resources/ffmpeg/bin/ffmpeg");
+    if manifest.is_file() {
+        return manifest.parent().map(|p| p.to_path_buf());
+    }
+
+    None
+}
+
+fn path_with_ffmpeg_first(ffmpeg_bin_dir: Option<&Path>) -> std::ffi::OsString {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(dir) = ffmpeg_bin_dir {
+        parts.push(dir.display().to_string());
+    }
+    if let Ok(existing) = std::env::var("PATH") {
+        parts.push(existing);
+    }
+    parts.join(":").into()
 }
 
 fn resolve_host_paths(app: &tauri::App) -> Result<HostPaths, String> {
     let node = pi_agent::find_node(app.handle()).ok_or_else(|| {
         "Bundled Node is missing. Run `npm run fetch-node`, then restart Jarbas.".to_string()
     })?;
-    let sdk_root = resolve_sdk_root();
+    let sdk_root = resolve_sdk_root(app)?;
     let bridge = std::env::var("SCREENPIPE_BRIDGE_PATH")
         .map(PathBuf::from)
         .unwrap_or_else(|_| sdk_root.join("bridges/node-json-session.mjs"));
+    if !bridge.is_file() {
+        return Err(format!("capture bridge missing at {}", bridge.display()));
+    }
     let capture_root = JarbasPaths::capture_dir();
+    let videos_dir = JarbasPaths::videos_dir();
     std::fs::create_dir_all(&capture_root)
         .map_err(|error| format!("could not create {}: {error}", capture_root.display()))?;
+    std::fs::create_dir_all(&videos_dir)
+        .map_err(|error| format!("could not create {}: {error}", videos_dir.display()))?;
+    let ffmpeg_bin_dir = resolve_ffmpeg_bin_dir(app);
 
     Ok(HostPaths {
         node,
         sdk_root,
         bridge,
-        capture_root,
+        data_dir: capture_root,
+        videos_dir,
+        ffmpeg_bin_dir,
     })
 }
 
@@ -609,7 +694,7 @@ fn read_last_session_from_db() -> Option<LastCaptureSession> {
 }
 
 fn read_last_session_from_mp4() -> Option<LastCaptureSession> {
-    let root = JarbasPaths::capture_dir();
+    let root = JarbasPaths::videos_dir();
     let entries = std::fs::read_dir(&root).ok()?;
 
     let mut best: Option<(String, u64, std::time::SystemTime)> = None;
