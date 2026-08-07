@@ -71,10 +71,10 @@ const REPORT_SECTIONS = [
   { step: "04", title: "Daily cadence", id: "report-section-04" },
   { step: "05", title: "What they did", id: "report-section-05" },
   { step: "06", title: "Timeline", id: "report-section-06" },
-  { step: "07", title: "Learnings · how they work", id: "report-section-07" },
+  { step: "07", title: "Insights · how they work", id: "report-section-07" },
   {
     step: "08",
-    title: "Opportunities · unlocks from learnings",
+    title: "Opportunities · unlocks from insights",
     id: "report-section-08",
   },
   { step: "09", title: "Repetitive work", id: "report-section-09" },
@@ -696,11 +696,11 @@ function ReportDetail({
         </ol>
       </Section>
 
-      {/* 07 Learnings */}
-      <Section step="07" title="Learnings · how they work" id="report-section-07">
+      {/* 07 Insights */}
+      <Section step="07" title="Insights · how they work" id="report-section-07">
         {report.learnings.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No learnings captured for this period yet.
+            No insights captured for this period yet.
           </p>
         ) : (
           <ul className="space-y-3">
@@ -741,7 +741,7 @@ function ReportDetail({
       {/* 08 Opportunities */}
       <Section
         step="08"
-        title="Opportunities · unlocks from learnings"
+        title="Opportunities · unlocks from insights"
         id="report-section-08"
       >
         {report.opportunities.length === 0 ? (
@@ -781,7 +781,7 @@ function ReportDetail({
                   {item.fromLearning ? (
                     <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
                       <span className="font-medium text-foreground">
-                        From learning ·{" "}
+                        From insight ·{" "}
                       </span>
                       {item.fromLearning}
                     </p>
@@ -1097,7 +1097,7 @@ export function ReportsPage() {
           </Button>
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-          The full package for a period: timeline, explanation, learnings, and
+          The full package for a period: timeline, explanation, insights, and
           opportunities. Saved to your organization in the cloud.
         </p>
       </div>

@@ -216,7 +216,7 @@ export const MOCK_AGENTS: Agent[] = [
       "Extract call themes",
       "Tag opportunities",
       "Open opportunity stubs",
-      "Link related learnings",
+      "Link related insights",
     ],
     triggers: [
       "Meeting notes saved",

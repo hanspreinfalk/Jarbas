@@ -16,6 +16,10 @@ import {
   isIdentifierNotFoundError,
   signOutAndClearLocalAuth,
 } from "@/lib/auth-origin";
+import {
+  companyEmailError,
+} from "@/lib/company-email";
+import { takeCompanyEmailRejection } from "@/components/jarbas/company-email-gate";
 import { cn } from "@/lib/utils";
 
 type AuthMode = "sign-in" | "sign-up";
@@ -85,7 +89,7 @@ export function AuthGate() {
   const [fullName, setFullName] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(() => takeCompanyEmailRejection());
   const submittingRef = useRef(false);
 
   const isSignUp = mode === "sign-up";
@@ -277,6 +281,8 @@ export function AuthGate() {
 
   async function startEmailSignUp(identifier: string, nameValue: string) {
     if (!signUp) throw new Error("Sign-up is not ready.");
+    const emailCheck = companyEmailError(identifier);
+    if (emailCheck) throw new Error(emailCheck);
     const { firstName, lastName } = splitFullName(nameValue);
     if (!firstName) {
       throw new Error("Enter your name to create an account.");
@@ -335,6 +341,15 @@ export function AuthGate() {
       return;
     }
 
+    // New accounts require a company email. Existing personal accounts can still sign in.
+    if (isSignUp) {
+      const emailCheck = companyEmailError(identifier);
+      if (emailCheck) {
+        setError(emailCheck);
+        return;
+      }
+    }
+
     submittingRef.current = true;
     setBusy(true);
     setError(null);
@@ -364,6 +379,11 @@ export function AuthGate() {
             if (await recoverFromAlreadySignedIn()) return;
             return;
           } else if (isIdentifierNotFoundError(err)) {
+            const emailCheck = companyEmailError(identifier);
+            if (emailCheck) {
+              setError(emailCheck);
+              return;
+            }
             if (!fullName.trim()) {
               setMode("sign-up");
               setError("No account found for that email. Enter your name to sign up.");
@@ -522,7 +542,9 @@ export function AuthGate() {
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
               {step === "code"
                 ? `We sent a code to ${email.trim()}.`
-                : "Use your Jarbas account to unlock the desktop app."}
+                : isSignUp
+                  ? "Use your company email to create a Jarbas account."
+                  : "Use your Jarbas account to unlock the desktop app."}
             </p>
           </div>
 
@@ -540,6 +562,9 @@ export function AuthGate() {
                   <GoogleIcon className="size-4" />
                   Continue with Google
                 </Button>
+                <p className="text-center text-xs text-muted-foreground">
+                  Use a Google Workspace / company account, not personal Gmail.
+                </p>
 
                 <div className="flex items-center gap-3">
                   <div className="h-px flex-1 bg-border" />
@@ -585,11 +610,19 @@ export function AuthGate() {
                       autoComplete="email"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Enter your email address"
+                      placeholder={
+                        isSignUp ? "name@company.com" : "Enter your email address"
+                      }
                       className="h-10 rounded-none bg-cream"
                       disabled={busy}
                       required
                     />
+                    {isSignUp ? (
+                      <p className="text-xs text-muted-foreground">
+                        Company email only. Personal providers like Gmail are not
+                        allowed.
+                      </p>
+                    ) : null}
                   </div>
                   <Button
                     type="submit"

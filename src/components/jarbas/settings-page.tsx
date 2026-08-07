@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useMutation } from "convex/react";
+import { useAuth } from "@clerk/clerk-react";
 import {
   Check,
   Copy,
@@ -17,6 +18,7 @@ import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { InviteMemberForm } from "@/components/jarbas/invite-member-form";
 import { ProviderLogo } from "@/components/jarbas/provider-logo";
 import { ThemeToggle } from "@/components/jarbas/theme-toggle";
 import {
@@ -255,6 +257,8 @@ export function SettingsPage({
 }: {
   onNavigate?: (id: AppTabId) => void;
 }) {
+  const { orgRole } = useAuth();
+  const isOrgAdmin = orgRole === "org:admin";
   const resetOnboarding = useMutation(api.user.resetOnboarding);
   const [piInfo, setPiInfo] = useState<PiAgentInfo | null>(null);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
@@ -578,10 +582,29 @@ export function SettingsPage({
         Settings
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Theme, keys, Ask setup, privacy, onboarding, and local storage.
+        Theme, team, keys, Ask setup, privacy, onboarding, and local storage.
       </p>
 
-      <section className="mt-10">
+      {isOrgAdmin ? (
+        <section className="mt-10">
+          <p className="label-caps text-primary">Team</p>
+          <div className="mt-2 border border-border bg-card">
+            <div className="border-b border-border px-4 py-3">
+              <h2 className="text-base font-semibold tracking-tight text-foreground">
+                Invite members
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Send invites to teammates with a company email.
+              </p>
+            </div>
+            <div className="px-4 py-4">
+              <InviteMemberForm />
+            </div>
+          </div>
+        </section>
+      ) : null}
+
+      <section className={isOrgAdmin ? "mt-8" : "mt-10"}>
         <p className="label-caps text-primary">Appearance</p>
         <div className="mt-2 border border-border bg-card">
           <div className="flex items-start justify-between gap-4 px-4 py-3">

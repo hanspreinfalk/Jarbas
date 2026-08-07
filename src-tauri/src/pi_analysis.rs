@@ -20,7 +20,8 @@ const EVENT_NAME: &str = "analysis-event";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum AnalysisKind {
-    Learnings,
+    #[serde(alias = "learnings")]
+    Insights,
     Opportunities,
     Reports,
     TeamReports,
@@ -29,7 +30,7 @@ pub enum AnalysisKind {
 impl AnalysisKind {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Learnings => "learnings",
+            Self::Insights => "insights",
             Self::Opportunities => "opportunities",
             Self::Reports => "reports",
             Self::TeamReports => "team-reports",
@@ -38,7 +39,7 @@ impl AnalysisKind {
 
     pub fn parse(raw: &str) -> Option<Self> {
         match raw {
-            "learnings" => Some(Self::Learnings),
+            "insights" | "learnings" => Some(Self::Insights),
             "opportunities" => Some(Self::Opportunities),
             "reports" => Some(Self::Reports),
             "team-reports" | "teamReports" => Some(Self::TeamReports),
@@ -48,7 +49,7 @@ impl AnalysisKind {
 
     pub fn dir(self) -> PathBuf {
         match self {
-            Self::Learnings => JarbasPaths::learnings_dir(),
+            Self::Insights => JarbasPaths::insights_dir(),
             Self::Opportunities => JarbasPaths::opportunities_dir(),
             // Cloud-only kinds — legacy path unused for writes.
             Self::Reports | Self::TeamReports => JarbasPaths::reports_dir(),
@@ -435,7 +436,7 @@ fn persist_payload(job: &ActiveJob, payload: Value) -> Result<PersistResult, Str
                 items: Some(vec![report]),
             })
         }
-        AnalysisKind::Learnings | AnalysisKind::Opportunities => {
+        AnalysisKind::Insights | AnalysisKind::Opportunities => {
             let items = if let Some(arr) = payload.get("items").and_then(|v| v.as_array()) {
                 arr.clone()
             } else if payload.is_array() {
@@ -1092,7 +1093,7 @@ fn build_prompt(
     }
 
     let schema = match kind {
-        AnalysisKind::Learnings => r#"
+        AnalysisKind::Insights => r#"
 Write a JSON object to the job file with shape:
 {
   "items": [
@@ -1115,12 +1116,12 @@ Write a JSON object to the job file with shape:
     }
   ]
 }
-Produce 3-8 LEARNINGS. A learning is an observation about HOW the person works and thinks - rituals, sequences, decision style, context switching, review habits, collaboration patterns. Describe what they do and how they think, not what to automate yet.
+Produce 3-8 INSIGHTS. An insight is an observation about HOW the person works and thinks - rituals, sequences, decision style, context switching, review habits, collaboration patterns. Describe what they do and how they think, not what to automate yet.
 Rules:
 - Observe process only. Do not pitch products, agents, or automations here.
 - "observed" = what they repeatedly do. "insight" = what that reveals about how they think or work.
 - "steps" = the repeatable sequence they already follow.
-- "relatedOpportunity" may hint at a future unlock title, but keep the learning itself observational.
+- "relatedOpportunity" may hint at a future unlock title, but keep the insight itself observational.
 - Merge screen capture with connected-app activity into one coherent picture. Ground every claim in evidence.
 "#,
         AnalysisKind::Opportunities => r#"
@@ -1150,7 +1151,7 @@ Write a JSON object to the job file with shape:
 }
 Produce 3-8 OPPORTUNITIES. An opportunity is an improvement unlock DERIVED from how the person works - automations, shortcuts, agents, digests, handoff fixes, delivery accelerators.
 Rules:
-- Every opportunity must cite a learning in "relatedLearning" (the observation it comes from) and restate that observation briefly in "signal".
+- Every opportunity must cite an insight in "relatedLearning" (the observation it comes from) and restate that observation briefly in "signal".
 - "unlock" = what becomes possible. Include concrete automation ideas when relevant.
 - Prefer positive unlock framing and concrete delivery horizons (days/weeks). Lead with speed of delivery.
 - Use both capture and connected-app evidence. Do not invent fake partner-billing stories.
@@ -1193,13 +1194,13 @@ Write a JSON object to the job file with shape:
 This report is the FULL PACKAGE for the period - complete, polished, and exhaustive. It must include:
 1) Timeline of what happened
 2) Clear explanation (headline + executiveBrief + findings)
-3) Learnings: how they work and think (observations only)
-4) Opportunities: improvement unlocks and automation ideas derived from those learnings
+3) Insights: how they work and think (observations only)
+4) Opportunities: improvement unlocks and automation ideas derived from those insights
 5) Supporting evidence: time allocation, cadence, repetitive work, bottlenecks, scorecard, next steps
 
 Rules:
 - Fill EVERY section. Prefer depth over thin summaries. Numbers may be approximate when exact timing is unavailable, but never invent apps or activities that did not appear.
-- "learnings" must describe process/thinking patterns. "opportunities" must each name the learning they come from in "fromLearning" and include a concrete "automationIdea" when relevant.
+- "learnings" must describe process/thinking patterns (insights). "opportunities" must each name the insight they come from in "fromLearning" and include a concrete "automationIdea" when relevant.
 - Prefer positive unlock framing. Avoid waste/leakage language.
 - Title/subtitle should read like a serious cycle report, not a stub.
 "##,
@@ -1317,7 +1318,7 @@ Run bash/sqlite3 across the whole timeframe. Raise limits if needed until the wi
 - If a source is empty for the range, say so in evidence and still use the other sources.
 - If almost no data exists anywhere, write valid JSON with an empty items array (or a sparse report) - do not invent fake partner-billing stories.
 - Prefer positive unlock framing for opportunities/reports. Avoid waste/leakage language.
-- Keep the ladder clear: learnings = how they work/think; opportunities = unlocks derived from learnings; reports = the full package (timeline + explanation + learnings + opportunities).
+- Keep the ladder clear: insights = how they work/think; opportunities = unlocks derived from insights; reports = the full package (timeline + explanation + insights + opportunities).
 - Never use emojis. Never use em dashes.
 - Take the time needed. Thoroughness beats speed for this job.
 

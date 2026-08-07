@@ -285,7 +285,7 @@ function OpportunityDetail({
       ) : (
         <>
           <section className="mt-8 space-y-3">
-            <h2 className="label-caps text-muted-foreground">From learning</h2>
+            <h2 className="label-caps text-muted-foreground">From insight</h2>
             {editing ? (
               <TextArea value={draft.signal} onChange={(v) => patchDraft("signal", v)} rows={4} />
             ) : (
@@ -352,7 +352,7 @@ function OpportunityDetail({
               )}
             </div>
             <div className="space-y-2">
-              <h2 className="label-caps text-muted-foreground">Related learning</h2>
+              <h2 className="label-caps text-muted-foreground">Related insight</h2>
               {editing ? (
                 <FieldInput
                   value={draft.relatedLearning}
@@ -512,7 +512,7 @@ export function OpportunitiesPage() {
           </Button>
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-          Improvement unlocks derived from your learnings - automations and
+          Improvement unlocks derived from your insights - automations and
           shortcuts ready to ship.
         </p>
       </div>

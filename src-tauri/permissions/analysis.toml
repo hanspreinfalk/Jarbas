@@ -1,6 +1,6 @@
 [[permission]]
 identifier = "allow-list-analysis-items"
-description = "Allows listing saved learnings, opportunities, or reports from ~/.jarbas."
+description = "Allows listing saved insights, opportunities, or reports from ~/.jarbas."
 commands.allow = ["list_analysis_items"]
 
 [[permission]]
@@ -20,7 +20,7 @@ commands.allow = ["get_analysis_status"]
 
 [[permission]]
 identifier = "allow-start-analysis"
-description = "Allows starting a background Pi analysis for learnings, opportunities, or reports."
+description = "Allows starting a background Pi analysis for insights, opportunities, or reports."
 commands.allow = ["start_analysis"]
 
 [[permission]]

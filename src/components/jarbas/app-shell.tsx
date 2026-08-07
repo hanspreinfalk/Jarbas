@@ -20,7 +20,7 @@ import { AnalysisRunProvider } from "@/components/jarbas/analysis-run-provider";
 import { AppHeaderActions } from "@/components/jarbas/app-header-actions";
 import { AskPage } from "@/components/jarbas/ask-page";
 import { ConnectorsPage } from "@/components/jarbas/connectors-page";
-import { LearningsPage } from "@/components/jarbas/learnings-page";
+import { InsightsPage } from "@/components/jarbas/insights-page";
 import { MultiTeamAnalysisPage } from "@/components/jarbas/multi-team-analysis-page";
 import { ObservabilityPage } from "@/components/jarbas/observability-page";
 import { OpportunitiesPage } from "@/components/jarbas/opportunities-page";
@@ -182,8 +182,8 @@ function AppShellInner() {
           <PageErrorBoundary resetKey={activeId}>
             {activeId === "recording" ? (
               <RecordingPage />
-            ) : activeId === "learnings" ? (
-              <LearningsPage />
+            ) : activeId === "insights" ? (
+              <InsightsPage />
             ) : activeId === "opportunities" ? (
               <OpportunitiesPage />
             ) : activeId === "reports" ? (

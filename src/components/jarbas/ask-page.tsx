@@ -1068,7 +1068,7 @@ export function AskPage() {
               Ask anything about your data
             </h1>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              Recordings, learnings, opportunities - all private and local.
+              Recordings, insights, opportunities - all private and local.
             </p>
             {piStatus && piStatus.kind !== "ready" ? (
               <p className="mt-2 text-xs text-muted-foreground">

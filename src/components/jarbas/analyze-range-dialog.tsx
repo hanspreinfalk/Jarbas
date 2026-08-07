@@ -46,9 +46,9 @@ type AnalyzeRangeDialogProps = {
 
 function startingCopy(kind: AnalysisKind): { title: string; detail: string } {
   switch (kind) {
-    case "learnings":
+    case "insights":
       return {
-        title: "Starting learnings",
+        title: "Starting insights",
         detail: "Kicking off analysis of how you work. This can take a moment.",
       };
     case "opportunities":

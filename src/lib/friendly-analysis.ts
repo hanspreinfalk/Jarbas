@@ -107,7 +107,7 @@ const TEAM_PHASE_LABEL: Record<FriendlyPhaseId, string> = {
 
 export function friendlyKindVerb(kind: AnalysisKind): string {
   switch (kind) {
-    case "learnings":
+    case "insights":
       return "Finding patterns";
     case "opportunities":
       return "Finding opportunities";
@@ -120,7 +120,7 @@ export function friendlyKindVerb(kind: AnalysisKind): string {
 
 export function friendlyKindReady(kind: AnalysisKind): string {
   switch (kind) {
-    case "learnings":
+    case "insights":
       return "Patterns ready";
     case "opportunities":
       return "Opportunities ready";
@@ -133,7 +133,7 @@ export function friendlyKindReady(kind: AnalysisKind): string {
 
 export function friendlyKindViewLabel(kind: AnalysisKind): string {
   switch (kind) {
-    case "learnings":
+    case "insights":
       return "View patterns";
     case "opportunities":
       return "View opportunities";
@@ -148,7 +148,7 @@ export function friendlyPromptLabel(
   rangeLabel: string,
 ): string {
   switch (kind) {
-    case "learnings":
+    case "insights":
       return `Find patterns for ${rangeLabel}`;
     case "opportunities":
       return `Find opportunities for ${rangeLabel}`;

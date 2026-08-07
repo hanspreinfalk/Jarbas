@@ -19,7 +19,7 @@ Data and runtime for this app live under `~/.jarbas` (not `~/.jarbas-main`).
 
 - Root: `~/.jarbas`
 - Screen + accessibility capture: `~/.jarbas` (`db.sqlite`, `data/`, session MP4s)
-- Learnings / opportunities: `~/.jarbas/learnings/`, `opportunities/`
+- Insights / opportunities: `~/.jarbas/insights/`, `opportunities/`
 - Work reports: Convex (cloud), not on disk
 - Pi agent: `~/.jarbas/pi-agent`
 - Pi config: `~/.jarbas/pi-config`

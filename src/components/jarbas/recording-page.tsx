@@ -165,12 +165,12 @@ export function RecordingPage() {
 
   return (
     <div className="animate-rise mx-auto flex w-full max-w-3xl flex-col px-4 py-8 sm:px-6 lg:px-8">
-      <p className="label-caps text-muted-foreground">Capture</p>
+      <p className="label-caps text-muted-foreground">Jarbas</p>
       <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-        Recording
+        Learning
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Record how you work. Capture stays private on this device.
+        Capture how you work. Everything stays private on this device.
       </p>
 
       <section className="mt-10 border border-border bg-card">
@@ -179,7 +179,7 @@ export function RecordingPage() {
             <div>
               <p className="label-caps text-muted-foreground">Session</p>
               <p className="mt-1 text-base font-semibold tracking-tight text-foreground">
-                {recording ? "Recording how you work" : "Ready to record"}
+                {recording ? "Learning how you work" : "Ready to start"}
               </p>
             </div>
             <div

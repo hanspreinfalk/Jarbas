@@ -1,4 +1,4 @@
-export type Learning = {
+export type Insight = {
   id: string;
   title: string;
   category: string;

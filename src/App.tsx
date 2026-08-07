@@ -12,6 +12,7 @@ import { ConvexUserSync } from "@/components/ConvexUserSync";
 import { ClearStorageOnSignOut } from "@/components/ClearStorageOnSignOut";
 import { AppShell } from "@/components/jarbas/app-shell";
 import { AuthGate } from "@/components/jarbas/auth-gate";
+import { CompanyEmailGate } from "@/components/jarbas/company-email-gate";
 import { OnboardingFlow } from "@/components/jarbas/onboarding-flow";
 import { OrgGate } from "@/components/jarbas/org-gate";
 import {
@@ -102,7 +103,9 @@ function App() {
 
         <SignedIn treatPendingAsSignedOut={false}>
           <ConvexUserSync />
-          <SignedInGate />
+          <CompanyEmailGate>
+            <SignedInGate />
+          </CompanyEmailGate>
         </SignedIn>
       </ClerkLoaded>
     </>

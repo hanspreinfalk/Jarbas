@@ -206,7 +206,7 @@ fn delete_db_rows_in_range(start_ms: u64, end_ms: u64) -> Result<u64, String> {
 fn delete_analysis_items_in_range(start: &str, end: &str) -> Result<u64, String> {
     let mut deleted = 0u64;
     for dir in [
-        JarbasPaths::learnings_dir(),
+        JarbasPaths::insights_dir(),
         JarbasPaths::opportunities_dir(),
         JarbasPaths::reports_dir(),
     ] {

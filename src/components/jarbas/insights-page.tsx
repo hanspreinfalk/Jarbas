@@ -25,7 +25,7 @@ import {
   type AnalysisTranscript,
 } from "@/lib/analysis";
 import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
-import type { Learning } from "@/lib/learnings";
+import type { Insight } from "@/lib/insights";
 import { cn } from "@/lib/utils";
 
 function confidenceBadgeClass(confidence: string) {
@@ -56,7 +56,7 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
   );
 }
 
-type LearningDraft = {
+type InsightDraft = {
   title: string;
   category: string;
   observed: string;
@@ -73,57 +73,57 @@ type LearningDraft = {
   apps: string;
 };
 
-function toDraft(learning: Learning): LearningDraft {
+function toDraft(insight: Insight): InsightDraft {
   return {
-    title: learning.title ?? "",
-    category: learning.category ?? "",
-    observed: learning.observed ?? "",
-    insight: learning.insight ?? "",
-    frequency: learning.frequency ?? "",
-    firstSeen: learning.firstSeen ?? "",
-    lastSeen: learning.lastSeen ?? "",
-    confidence: learning.confidence ?? "",
-    evidence: listToLines(learning.evidence),
-    steps: listToLines(learning.steps),
-    relatedOpportunity: learning.relatedOpportunity ?? "",
-    nextAction: learning.nextAction ?? "",
-    timePattern: learning.timePattern ?? "",
-    apps: listToCsv(learning.apps),
+    title: insight.title ?? "",
+    category: insight.category ?? "",
+    observed: insight.observed ?? "",
+    insight: insight.insight ?? "",
+    frequency: insight.frequency ?? "",
+    firstSeen: insight.firstSeen ?? "",
+    lastSeen: insight.lastSeen ?? "",
+    confidence: insight.confidence ?? "",
+    evidence: listToLines(insight.evidence),
+    steps: listToLines(insight.steps),
+    relatedOpportunity: insight.relatedOpportunity ?? "",
+    nextAction: insight.nextAction ?? "",
+    timePattern: insight.timePattern ?? "",
+    apps: listToCsv(insight.apps),
   };
 }
 
-function LearningDetail({
-  learning,
+function InsightDetail({
+  insight,
   onBack,
   onSaved,
   onDeleted,
 }: {
-  learning: Learning;
+  insight: Insight;
   onBack: () => void;
-  onSaved: (learning: Learning) => void;
+  onSaved: (insight: Insight) => void;
   onDeleted: () => void;
 }) {
   const [tab, setTab] = useState<"details" | "ai">("details");
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(() => toDraft(learning));
+  const [draft, setDraft] = useState(() => toDraft(insight));
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
-    setDraft(toDraft(learning));
+    setDraft(toDraft(insight));
     setEditing(false);
     setActionError(null);
-  }, [learning]);
+  }, [insight]);
 
-  const analysis = learning.analysis as AnalysisTranscript | undefined;
+  const analysis = insight.analysis as AnalysisTranscript | undefined;
   const promptLabel = `Find patterns for ${formatRangeLabel(
-    learning.startDate ?? "",
-    learning.endDate ?? "",
+    insight.startDate ?? "",
+    insight.endDate ?? "",
   )}.`;
 
-  function patchDraft<K extends keyof LearningDraft>(key: K, value: LearningDraft[K]) {
+  function patchDraft<K extends keyof InsightDraft>(key: K, value: InsightDraft[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
   }
 
@@ -135,8 +135,8 @@ function LearningDetail({
     setSaving(true);
     setActionError(null);
     try {
-      const next = await updateAnalysisItem<Learning>("learnings", learning.id, {
-        ...learning,
+      const next = await updateAnalysisItem<Insight>("insights", insight.id, {
+        ...insight,
         title: draft.title.trim(),
         category: draft.category.trim(),
         observed: draft.observed.trim(),
@@ -165,7 +165,7 @@ function LearningDetail({
     setDeleting(true);
     setActionError(null);
     try {
-      await deleteAnalysisItem("learnings", learning.id);
+      await deleteAnalysisItem("insights", insight.id);
       setConfirmDelete(false);
       onDeleted();
     } catch (error) {
@@ -185,7 +185,7 @@ function LearningDetail({
           className="-ml-2 rounded-none text-muted-foreground"
         >
           <ArrowLeft className="size-3.5" />
-          All learnings
+          All insights
         </Button>
         <div className="flex flex-wrap items-center gap-2">
           {!editing ? (
@@ -197,12 +197,12 @@ function LearningDetail({
               saving={saving}
               deleting={deleting}
               onEdit={() => {
-                setDraft(toDraft(learning));
+                setDraft(toDraft(insight));
                 setEditing(true);
                 setActionError(null);
               }}
               onCancelEdit={() => {
-                setDraft(toDraft(learning));
+                setDraft(toDraft(insight));
                 setEditing(false);
                 setActionError(null);
               }}
@@ -233,18 +233,18 @@ function LearningDetail({
           </div>
         ) : (
           <>
-            <ConfidenceBadge confidence={learning.confidence} />
+            <ConfidenceBadge confidence={insight.confidence} />
             <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
-              {learning.title}
+              {insight.title}
             </h1>
-            {learning.category ? (
+            {insight.category ? (
               <p className="mt-3 text-sm text-muted-foreground">
-                {learning.category}
+                {insight.category}
               </p>
             ) : null}
-            {formatStartEndLabel(learning.startDate, learning.endDate) ? (
+            {formatStartEndLabel(insight.startDate, insight.endDate) ? (
               <p className="mt-2 text-sm text-muted-foreground">
-                {formatStartEndLabel(learning.startDate, learning.endDate)}
+                {formatStartEndLabel(insight.startDate, insight.endDate)}
               </p>
             ) : null}
           </>
@@ -262,7 +262,7 @@ function LearningDetail({
           <AnalysisChatPanel
             transcript={
               analysis ?? {
-                jobId: learning.jobId ?? learning.id,
+                jobId: insight.jobId ?? insight.id,
                 content: "",
                 thinking: "",
                 tools: [],
@@ -279,7 +279,7 @@ function LearningDetail({
               <TextArea value={draft.observed} onChange={(v) => patchDraft("observed", v)} rows={4} />
             ) : (
               <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-                {learning.observed}
+                {insight.observed}
               </p>
             )}
           </section>
@@ -294,7 +294,7 @@ function LearningDetail({
               />
             ) : (
               <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-                {learning.frequency}
+                {insight.frequency}
               </p>
             )}
           </section>
@@ -305,7 +305,7 @@ function LearningDetail({
               <TextArea value={draft.insight} onChange={(v) => patchDraft("insight", v)} rows={4} />
             ) : (
               <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
-                {learning.insight}
+                {insight.insight}
               </p>
             )}
           </section>
@@ -319,7 +319,7 @@ function LearningDetail({
               </>
             ) : (
               <ol className="list-decimal space-y-2 pl-5 text-sm leading-relaxed text-foreground">
-                {(learning.steps ?? []).map((step) => (
+                {(insight.steps ?? []).map((step) => (
                   <li key={step}>{step}</li>
                 ))}
               </ol>
@@ -335,7 +335,7 @@ function LearningDetail({
               </>
             ) : (
               <ul className="space-y-2 text-sm leading-relaxed text-foreground">
-                {(learning.evidence ?? []).map((item) => (
+                {(insight.evidence ?? []).map((item) => (
                   <li key={item} className="border border-border bg-card px-3 py-2">
                     {item}
                   </li>
@@ -351,7 +351,7 @@ function LearningDetail({
                 <FieldInput value={draft.timePattern} onChange={(v) => patchDraft("timePattern", v)} />
               ) : (
                 <p className="text-sm leading-relaxed text-foreground">
-                  {learning.timePattern}
+                  {insight.timePattern}
                 </p>
               )}
             </div>
@@ -364,7 +364,7 @@ function LearningDetail({
                 />
               ) : (
                 <p className="text-sm leading-relaxed text-foreground">
-                  {learning.relatedOpportunity}
+                  {insight.relatedOpportunity}
                 </p>
               )}
             </div>
@@ -377,7 +377,7 @@ function LearningDetail({
                 <FieldInput value={draft.firstSeen} onChange={(v) => patchDraft("firstSeen", v)} />
               ) : (
                 <p className="text-sm leading-relaxed text-foreground">
-                  {learning.firstSeen}
+                  {insight.firstSeen}
                 </p>
               )}
             </div>
@@ -387,7 +387,7 @@ function LearningDetail({
                 <FieldInput value={draft.lastSeen} onChange={(v) => patchDraft("lastSeen", v)} />
               ) : (
                 <p className="text-sm leading-relaxed text-foreground">
-                  {learning.lastSeen}
+                  {insight.lastSeen}
                 </p>
               )}
             </div>
@@ -399,7 +399,7 @@ function LearningDetail({
               <TextArea value={draft.nextAction} onChange={(v) => patchDraft("nextAction", v)} rows={3} />
             ) : (
               <p className="border border-border bg-muted/40 px-3 py-2 text-sm leading-relaxed text-foreground">
-                {learning.nextAction}
+                {insight.nextAction}
               </p>
             )}
           </section>
@@ -412,7 +412,7 @@ function LearningDetail({
                 <p className="text-xs text-muted-foreground">Comma-separated</p>
               </>
             ) : (
-              <AppBadgeList apps={learning.apps ?? []} />
+              <AppBadgeList apps={insight.apps ?? []} />
             )}
           </section>
         </>
@@ -421,8 +421,8 @@ function LearningDetail({
       <DeleteConfirmDialog
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
-        title="Delete learning?"
-        description="This permanently deletes the learning. You cannot undo this."
+        title="Delete insight?"
+        description="This permanently deletes the insight. You cannot undo this."
         deleting={deleting}
         onConfirm={() => void handleDelete()}
       />
@@ -430,8 +430,8 @@ function LearningDetail({
   );
 }
 
-export function LearningsPage() {
-  const [items, setItems] = useState<Learning[]>([]);
+export function InsightsPage() {
+  const [items, setItems] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
@@ -442,13 +442,13 @@ export function LearningsPage() {
     setLoading(true);
     setLoadError(null);
     try {
-      const next = await listAnalysisItems<Learning>("learnings");
+      const next = await listAnalysisItems<Insight>("insights");
       setItems(next);
       return next;
     } catch (error) {
-      console.error("Failed to load learnings", error);
+      console.error("Failed to load insights", error);
       setLoadError(error instanceof Error ? error.message : String(error));
-      return [] as Learning[];
+      return [] as Insight[];
     } finally {
       setLoading(false);
     }
@@ -458,7 +458,7 @@ export function LearningsPage() {
     void refresh();
   }, [refresh]);
 
-  if (meta?.kind === "learnings") {
+  if (meta?.kind === "insights") {
     return (
       <AnalysisRunView
         onErrorBack={() => clearRun()}
@@ -472,12 +472,12 @@ export function LearningsPage() {
     );
   }
 
-  const selected = items.find((learning) => learning.id === selectedId);
+  const selected = items.find((insight) => insight.id === selectedId);
 
   if (selected) {
     return (
-      <LearningDetail
-        learning={selected}
+      <InsightDetail
+        insight={selected}
         onBack={() => setSelectedId(null)}
         onSaved={(next) => {
           setItems((current) =>
@@ -498,7 +498,7 @@ export function LearningsPage() {
         <p className="label-caps text-muted-foreground">Jarbas</p>
         <div className="mt-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
           <h1 className="font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-            Learnings
+            Insights
           </h1>
           <Button
             type="button"
@@ -523,12 +523,12 @@ export function LearningsPage() {
       {loading ? (
         <div className="mt-16 flex items-center justify-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="size-4 animate-spin" />
-          Loading learnings…
+          Loading insights…
         </div>
       ) : items.length === 0 ? (
         <div className="mt-10 border border-border bg-card px-5 py-10 text-center">
           <p className="font-display text-xl tracking-tight text-foreground">
-            No learnings yet
+            No insights yet
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
             Choose a date range to find patterns in how you work - your rituals,
@@ -545,22 +545,22 @@ export function LearningsPage() {
         </div>
       ) : (
         <ul className="mt-10 divide-y divide-border border border-border bg-card">
-          {items.map((learning, index) => {
+          {items.map((insight, index) => {
             const rangeLabel = formatStartEndLabel(
-              learning.startDate,
-              learning.endDate,
+              insight.startDate,
+              insight.endDate,
             );
             return (
-            <li key={learning.id}>
+            <li key={insight.id}>
               <button
                 type="button"
-                onClick={() => setSelectedId(learning.id)}
+                onClick={() => setSelectedId(insight.id)}
                 className="animate-rise w-full px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
                 <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
                   <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {learning.category}
+                    {insight.category}
                   </span>
                   {rangeLabel ? (
                     <span className="text-xs text-muted-foreground">
@@ -569,14 +569,14 @@ export function LearningsPage() {
                   ) : null}
                 </div>
                 <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
-                  {learning.title}
+                  {insight.title}
                 </h2>
-                {learning.observed ? (
+                {insight.observed ? (
                   <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
-                    {learning.observed}
+                    {insight.observed}
                   </p>
                 ) : null}
-                <AppBadgeList apps={learning.apps ?? []} className="mt-3" />
+                <AppBadgeList apps={insight.apps ?? []} className="mt-3" />
               </button>
             </li>
             );
@@ -587,7 +587,7 @@ export function LearningsPage() {
       <AnalyzeRangeDialog
         open={open}
         onOpenChange={setOpen}
-        kind="learnings"
+        kind="insights"
         title="Find patterns"
         description="Choose dates to review. Jarbas studies how you work and think from your screen activity and connected apps."
         confirmLabel="Find patterns"

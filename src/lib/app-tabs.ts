@@ -14,7 +14,7 @@ import {
 
 export type AppTabId =
   | "recording"
-  | "learnings"
+  | "insights"
   | "opportunities"
   | "reports"
   | "agents"
@@ -36,9 +36,9 @@ export type AppTab = {
 /** Labels for pages that are not always in the sidebar (e.g. settings subpages). */
 export const APP_PAGE_LABELS: Record<AppTabId, string> = {
   ask: "Ask",
-  recording: "Recording",
+  recording: "Learning",
   connectors: "Connectors",
-  learnings: "Learnings",
+  insights: "Insights",
   opportunities: "Opportunities",
   reports: "Reports",
   agents: "Agents",
@@ -56,7 +56,7 @@ export const APP_TABS: AppTab[] = [
   },
   {
     id: "recording",
-    label: "Recording",
+    label: "Learning",
     icon: AudioLines,
   },
   {
@@ -65,8 +65,8 @@ export const APP_TABS: AppTab[] = [
     icon: Plug,
   },
   {
-    id: "learnings",
-    label: "Learnings",
+    id: "insights",
+    label: "Insights",
     icon: BookOpen,
   },
   {

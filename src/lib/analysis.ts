@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
 export type AnalysisKind =
-  | "learnings"
+  | "insights"
   | "opportunities"
   | "reports"
   | "team-reports";

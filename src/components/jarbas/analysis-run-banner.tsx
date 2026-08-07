@@ -10,10 +10,10 @@ import {
 import { cn } from "@/lib/utils";
 
 const KIND_TAB: Record<
-  "learnings" | "opportunities" | "reports" | "team-reports",
+  "insights" | "opportunities" | "reports" | "team-reports",
   AppTabId
 > = {
-  learnings: "learnings",
+  insights: "insights",
   opportunities: "opportunities",
   reports: "reports",
   "team-reports": "multi-team-analysis",

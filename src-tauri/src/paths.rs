@@ -152,8 +152,13 @@ impl JarbasPaths {
         Self::root().join("videos")
     }
 
-    /// AI-generated learnings (one JSON file per learning).
-    pub fn learnings_dir() -> PathBuf {
+    /// AI-generated insights (one JSON file per insight).
+    pub fn insights_dir() -> PathBuf {
+        Self::root().join("insights")
+    }
+
+    /// Legacy learnings dir. Migrated to insights/ on startup.
+    pub fn legacy_learnings_dir() -> PathBuf {
         Self::root().join("learnings")
     }
 
@@ -197,13 +202,33 @@ impl JarbasPaths {
             Self::composio_home(),
             Self::capture_dir(),
             Self::videos_dir(),
-            Self::learnings_dir(),
+            Self::insights_dir(),
             Self::opportunities_dir(),
             // reports/ is intentionally omitted — cloud-only (Convex)
             Self::analysis_runs_dir(),
         ] {
             std::fs::create_dir_all(&dir)
                 .map_err(|error| format!("Could not create {}: {error}", dir.display()))?;
+        }
+        // Migrate legacy ~/.jarbas/learnings → insights (best-effort).
+        let legacy_learnings = Self::legacy_learnings_dir();
+        let insights = Self::insights_dir();
+        if legacy_learnings.is_dir() {
+            if !insights.exists() {
+                let _ = std::fs::rename(&legacy_learnings, &insights);
+            } else if let Ok(entries) = std::fs::read_dir(&legacy_learnings) {
+                for entry in entries.flatten() {
+                    let from = entry.path();
+                    let Some(name) = from.file_name() else {
+                        continue;
+                    };
+                    let to = insights.join(name);
+                    if !to.exists() {
+                        let _ = std::fs::rename(&from, &to);
+                    }
+                }
+                let _ = std::fs::remove_dir_all(&legacy_learnings);
+            }
         }
         // Remove leftover local reports from older builds (best-effort).
         let legacy_reports = Self::reports_dir();
