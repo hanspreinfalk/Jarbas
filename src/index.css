@@ -213,17 +213,20 @@
   }
 
   .animate-thinking {
+    /* One highlight band in a 200%-wide gradient; move exactly one period so the loop is seamless. */
     background-image: linear-gradient(
       90deg,
-      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 0%,
-      var(--foreground) 45%,
-      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 90%
+      color-mix(in oklab, var(--muted-foreground) 50%, transparent) 0%,
+      color-mix(in oklab, var(--muted-foreground) 50%, transparent) 42%,
+      var(--foreground) 50%,
+      color-mix(in oklab, var(--muted-foreground) 50%, transparent) 58%,
+      color-mix(in oklab, var(--muted-foreground) 50%, transparent) 100%
     );
     background-size: 200% 100%;
     background-clip: text;
     -webkit-background-clip: text;
     color: transparent;
-    animation: thinking-shimmer 1.6s ease-in-out infinite;
+    animation: thinking-shimmer 2.5s linear infinite;
   }
 }
 
@@ -248,10 +251,11 @@
 }
 
 @keyframes thinking-shimmer {
-  0% {
-    background-position: 100% 0;
+  /* 200% → 0% with background-size 200% = exactly one tile; no mid-loop jump. */
+  from {
+    background-position: 200% 0;
   }
-  100% {
-    background-position: -100% 0;
+  to {
+    background-position: 0% 0;
   }
 }

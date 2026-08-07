@@ -13,7 +13,7 @@ export function AnalysisRunView({
   onCompleted,
   onErrorBack,
 }: {
-  onCompleted: (ids: string[]) => void;
+  onCompleted: (result: { ids: string[]; items: unknown[] | null }) => void;
   onErrorBack: () => void;
 }) {
   const {
@@ -35,8 +35,8 @@ export function AnalysisRunView({
 
   useEffect(() => {
     if (!done || error || !completedIds) return;
-    const ids = consumeCompleted();
-    if (ids) onCompletedRef.current(ids);
+    const result = consumeCompleted();
+    if (result) onCompletedRef.current(result);
   }, [done, error, completedIds, consumeCompleted]);
 
   if (!meta || !transcript) return null;

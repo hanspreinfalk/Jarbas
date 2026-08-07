@@ -23,6 +23,7 @@ pub enum AnalysisKind {
     Learnings,
     Opportunities,
     Reports,
+    TeamReports,
 }
 
 impl AnalysisKind {
@@ -31,6 +32,7 @@ impl AnalysisKind {
             Self::Learnings => "learnings",
             Self::Opportunities => "opportunities",
             Self::Reports => "reports",
+            Self::TeamReports => "team-reports",
         }
     }
 
@@ -39,6 +41,7 @@ impl AnalysisKind {
             "learnings" => Some(Self::Learnings),
             "opportunities" => Some(Self::Opportunities),
             "reports" => Some(Self::Reports),
+            "team-reports" | "teamReports" => Some(Self::TeamReports),
             _ => None,
         }
     }
@@ -47,8 +50,13 @@ impl AnalysisKind {
         match self {
             Self::Learnings => JarbasPaths::learnings_dir(),
             Self::Opportunities => JarbasPaths::opportunities_dir(),
-            Self::Reports => JarbasPaths::reports_dir(),
+            // Cloud-only kinds — legacy path unused for writes.
+            Self::Reports | Self::TeamReports => JarbasPaths::reports_dir(),
         }
+    }
+
+    pub fn is_cloud_report(self) -> bool {
+        matches!(self, Self::Reports | Self::TeamReports)
     }
 }
 
@@ -97,6 +105,9 @@ pub enum AnalysisEvent {
         job_id: String,
         kind: AnalysisKind,
         ids: Vec<String>,
+        /// Present for cloud-persisted kinds (reports). Client saves these; nothing is written locally.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        items: Option<Vec<Value>>,
     },
     #[serde(rename_all = "camelCase")]
     Cancelled {
@@ -376,16 +387,19 @@ fn write_item_file(kind: AnalysisKind, item: &Value) -> Result<String, String> {
     Ok(id.to_string())
 }
 
-fn persist_payload(
-    job: &ActiveJob,
-    payload: Value,
-) -> Result<Vec<String>, String> {
+struct PersistResult {
+    ids: Vec<String>,
+    /// When set, the frontend must persist these (reports → Convex). Nothing written locally.
+    items: Option<Vec<Value>>,
+}
+
+fn persist_payload(job: &ActiveJob, payload: Value) -> Result<PersistResult, String> {
     let created_at = chrono_like_local();
     let analysis = build_analysis_blob(job);
     let _ = save_analysis_run(job, &analysis);
 
     match job.kind {
-        AnalysisKind::Reports => {
+        AnalysisKind::Reports | AnalysisKind::TeamReports => {
             let mut report = if let Some(inner) = payload.get("report").cloned() {
                 inner
             } else if payload.get("title").is_some() {
@@ -393,10 +407,13 @@ fn persist_payload(
             } else {
                 return Err("Report JSON missing title / report object.".into());
             };
-            let fallback = format!("report-{}-{}", job.start_date, now_millis());
-            let _id = ensure_string_id(&mut report, &fallback);
+            let fallback = format!("{}-{}-{}", job.kind.as_str(), job.start_date, now_millis());
+            let id = ensure_string_id(&mut report, &fallback);
             if let Some(obj) = report.as_object_mut() {
                 attach_meta(obj, job, &created_at, &analysis);
+                if matches!(job.kind, AnalysisKind::TeamReports) {
+                    obj.insert("scope".into(), Value::String("team".into()));
+                }
                 if obj.get("period").and_then(|v| v.as_str()).unwrap_or("").is_empty() {
                     obj.insert(
                         "period".into(),
@@ -409,10 +426,14 @@ fn persist_payload(
                     .unwrap_or("")
                     .is_empty()
                 {
-                    obj.insert("generatedAt".into(), Value::String(created_at));
+                    obj.insert("generatedAt".into(), Value::String(created_at.clone()));
                 }
             }
-            Ok(vec![write_item_file(job.kind, &report)?])
+            // Reports live in Convex — do not write ~/.jarbas/reports.
+            Ok(PersistResult {
+                ids: vec![id],
+                items: Some(vec![report]),
+            })
         }
         AnalysisKind::Learnings | AnalysisKind::Opportunities => {
             let items = if let Some(arr) = payload.get("items").and_then(|v| v.as_array()) {
@@ -452,7 +473,10 @@ fn persist_payload(
                 ids.push(write_item_file(job.kind, &item)?);
                 let _ = id;
             }
-            Ok(ids)
+            Ok(PersistResult {
+                ids,
+                items: None,
+            })
         }
     }
 }
@@ -529,6 +553,7 @@ fn finish_job(app: &AppHandle, state: &AnalysisState) {
     };
 
     let _ = fs::remove_file(JarbasPaths::analysis_job_file(&job.id));
+    cleanup_analysis_context(&job.id);
     stop_process(state);
     {
         let mut guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
@@ -536,12 +561,13 @@ fn finish_job(app: &AppHandle, state: &AnalysisState) {
     }
 
     match result {
-        Ok(ids) => emit(
+        Ok(PersistResult { ids, items }) => emit(
             app,
             AnalysisEvent::Completed {
                 job_id: job.id,
                 kind: job.kind,
                 ids,
+                items,
             },
         ),
         Err(message) => emit(
@@ -1052,6 +1078,19 @@ fn build_prompt(
     let db_path = JarbasPaths::root().join("db.sqlite");
     let period = format_period(start_date, end_date);
 
+    if matches!(kind, AnalysisKind::TeamReports) {
+        let context_path = JarbasPaths::analysis_context_dir(job_id);
+        return build_team_reports_prompt(
+            start_date,
+            end_date,
+            time_zone,
+            local_time,
+            &period,
+            &job_path,
+            &context_path,
+        );
+    }
+
     let schema = match kind {
         AnalysisKind::Learnings => r#"
 Write a JSON object to the job file with shape:
@@ -1164,6 +1203,49 @@ Rules:
 - Prefer positive unlock framing. Avoid waste/leakage language.
 - Title/subtitle should read like a serious cycle report, not a stub.
 "##,
+        AnalysisKind::TeamReports => r##"
+Write a JSON object to the job file with shape:
+{
+  "report": {
+    "id": "kebab-case-id",
+    "title": string,
+    "subtitle": string,
+    "period": string,
+    "scope": "team",
+    "generatedAt": string,
+    "headline": string,
+    "executiveBrief": string,
+    "keyInsight": string,
+    "deliveryUnlock": string,
+    "impactOnce": string,
+    "kpis": [{ "label": string, "value": string, "delta": string, "tone": "up" | "flat" | "watch" }],
+    "teamFindings": [{ "title": string, "detail": string }],
+    "memberSnapshots": [{
+      "clerkUserId": string,
+      "person": string,
+      "role": string,
+      "headline": string,
+      "strengths": string[],
+      "risks": string[],
+      "topOpportunity": string
+    }],
+    "sharedPatterns": [{ "title": string, "detail": string, "members": string[] }],
+    "crossTeamBottlenecks": [{ "title": string, "cost": string, "unlock": string, "owners": string[] }],
+    "teamOpportunities": [{
+      "name": string,
+      "unlock": string,
+      "fromPattern": string,
+      "impact": number,
+      "effort": number,
+      "horizon": string,
+      "owners": string[]
+    }],
+    "nextSteps": [{ "action": string, "owner": string, "when": string }],
+    "scorecard": [{ "label": string, "score": number, "note": string }]
+  }
+}
+TEAM report: synthesize ONLY from staged member report JSON files (see PART C). Include every member in memberSnapshots.
+"##,
     };
 
     let toolkit_list = if connected_toolkits.is_empty() {
@@ -1259,6 +1341,168 @@ Do not ask clarifying questions. Start with Part A, then Part B, then write the 
     )
 }
 
+fn build_team_reports_prompt(
+    start_date: &str,
+    end_date: &str,
+    time_zone: &str,
+    local_time: &str,
+    period: &str,
+    job_path: &Path,
+    context_path: &Path,
+) -> String {
+    format!(
+        r#"[Context: User timezone is {time_zone}. Current local time is {local_time}. Never use emojis. Never use em dashes. This is a background analysis job - do not chat with the user; only read the member reports thoroughly and write the JSON file.]
+
+Task: Produce a MULTI-PERSON TEAM REPORT for {period} (local calendar dates {start_date} through {end_date} inclusive).
+
+=== SOURCE MATERIAL (required) ===
+Member work reports are staged as JSON files here:
+  {context_path}
+
+Also read:
+  {context_path}/index.json
+
+Rules for sources:
+- Read EVERY member-*.json file. Do not skip people or duplicate reports for the same person.
+- Use only facts present in those reports. Do not invent apps, people, meetings, or metrics.
+- You are synthesizing across people - this is NOT a personal capture analysis. Do NOT query ~/.jarbas/db.sqlite or Composio for this job.
+- When the same person has multiple reports, merge their signal into one memberSnapshots entry (keep person once).
+- When people conflict or diverge, say so clearly in teamFindings / sharedPatterns.
+
+=== OUTPUT SCHEMA ===
+Write a JSON object to the job file with shape:
+{{
+  "report": {{
+    "id": "kebab-case-id",
+    "title": string,
+    "subtitle": string,
+    "period": string,
+    "scope": "team",
+    "generatedAt": string,
+    "headline": string,
+    "executiveBrief": string,
+    "keyInsight": string,
+    "deliveryUnlock": string,
+    "impactOnce": string,
+    "kpis": [{{ "label": string, "value": string, "delta": string, "tone": "up" | "flat" | "watch" }}],
+    "teamFindings": [{{ "title": string, "detail": string }}],
+    "memberSnapshots": [{{
+      "clerkUserId": string,
+      "person": string,
+      "role": string,
+      "headline": string,
+      "strengths": string[],
+      "risks": string[],
+      "topOpportunity": string
+    }}],
+    "sharedPatterns": [{{ "title": string, "detail": string, "members": string[] }}],
+    "crossTeamBottlenecks": [{{ "title": string, "cost": string, "unlock": string, "owners": string[] }}],
+    "teamOpportunities": [{{
+      "name": string,
+      "unlock": string,
+      "fromPattern": string,
+      "impact": number,
+      "effort": number,
+      "horizon": string,
+      "owners": string[]
+    }}],
+    "nextSteps": [{{ "action": string, "owner": string, "when": string }}],
+    "scorecard": [{{ "label": string, "score": number, "note": string }}]
+  }}
+}}
+
+This is a TEAM package, not a single-person report:
+1) Executive synthesis across the group
+2) One snapshot per selected member (strengths, risks, top unlock)
+3) Shared patterns that appear across multiple people
+4) Cross-team bottlenecks and team-level opportunities with owners
+5) Concrete next steps the org can take
+
+Rules:
+- Include a memberSnapshots entry for every member report you read.
+- Prefer positive unlock framing. Avoid waste/leakage language.
+- Fill every section. Prefer depth over thin summaries.
+- Title/subtitle should read like a serious team cycle report.
+
+Output (required):
+1. Write the final JSON with the write tool to exactly this path:
+   {job_path}
+2. After the file is written, reply with a single short line: DONE
+
+Do not ask clarifying questions. Start by reading index.json and every member file, then write the team report."#,
+        time_zone = time_zone,
+        local_time = local_time,
+        period = period,
+        start_date = start_date,
+        end_date = end_date,
+        context_path = context_path.display(),
+        job_path = job_path.display(),
+    )
+}
+
+fn stage_member_reports(job_id: &str, member_reports: &Value) -> Result<PathBuf, String> {
+    let arr = member_reports
+        .as_array()
+        .ok_or_else(|| "memberReports must be a JSON array.".to_string())?;
+    if arr.is_empty() {
+        return Err("Select people who have reports in that timeframe.".into());
+    }
+
+    let dir = JarbasPaths::analysis_context_dir(job_id);
+    if dir.exists() {
+        let _ = fs::remove_dir_all(&dir);
+    }
+    fs::create_dir_all(&dir).map_err(|e| format!("Could not create {}: {e}", dir.display()))?;
+
+    let mut index = Vec::new();
+    for (i, report) in arr.iter().enumerate() {
+        let person = report
+            .get("person")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("Teammate");
+        let clerk_user_id = report
+            .get("_convex")
+            .and_then(|v| v.get("clerkUserId"))
+            .and_then(|v| v.as_str())
+            .or_else(|| report.get("clerkUserId").and_then(|v| v.as_str()))
+            .unwrap_or("");
+        let report_id = report.get("id").and_then(|v| v.as_str()).unwrap_or("");
+        let filename = format!("member-{:02}.json", i + 1);
+        let path = dir.join(&filename);
+        let body = serde_json::to_string_pretty(report)
+            .map_err(|e| format!("Could not encode member report: {e}"))?;
+        fs::write(&path, body + "\n")
+            .map_err(|e| format!("Could not write {}: {e}", path.display()))?;
+        index.push(json!({
+            "file": filename,
+            "person": person,
+            "clerkUserId": clerk_user_id,
+            "reportId": report_id,
+            "title": report.get("title").and_then(|v| v.as_str()).unwrap_or(""),
+            "period": report.get("period").and_then(|v| v.as_str()).unwrap_or(""),
+        }));
+    }
+
+    let index_path = dir.join("index.json");
+    let index_body = serde_json::to_string_pretty(&json!({
+        "count": index.len(),
+        "members": index,
+    }))
+    .map_err(|e| format!("Could not encode index: {e}"))?;
+    fs::write(&index_path, index_body + "\n")
+        .map_err(|e| format!("Could not write {}: {e}", index_path.display()))?;
+
+    Ok(dir)
+}
+
+fn cleanup_analysis_context(job_id: &str) {
+    let dir = JarbasPaths::analysis_context_dir(job_id);
+    if dir.is_dir() {
+        let _ = fs::remove_dir_all(&dir);
+    }
+}
+
 fn list_dir_items(dir: &Path) -> Result<Vec<Value>, String> {
     if !dir.exists() {
         return Ok(Vec::new());
@@ -1297,6 +1541,10 @@ fn list_dir_items(dir: &Path) -> Result<Vec<Value>, String> {
 #[tauri::command]
 pub fn list_analysis_items(kind: String) -> Result<Vec<Value>, String> {
     let kind = AnalysisKind::parse(&kind).ok_or_else(|| format!("Unknown kind: {kind}"))?;
+    // Reports / team-reports are cloud-only (Convex). Local list is always empty.
+    if kind.is_cloud_report() {
+        return Ok(vec![]);
+    }
     JarbasPaths::ensure_directories()?;
     list_dir_items(&kind.dir())
 }
@@ -1304,6 +1552,9 @@ pub fn list_analysis_items(kind: String) -> Result<Vec<Value>, String> {
 #[tauri::command]
 pub fn delete_analysis_item(kind: String, id: String) -> Result<(), String> {
     let kind = AnalysisKind::parse(&kind).ok_or_else(|| format!("Unknown kind: {kind}"))?;
+    if kind.is_cloud_report() {
+        return Err("Reports are stored in the cloud, not locally.".into());
+    }
     let id = id.trim();
     if !crate::paths::is_safe_item_id(id) {
         return Err("Invalid id.".into());
@@ -1318,6 +1569,9 @@ pub fn delete_analysis_item(kind: String, id: String) -> Result<(), String> {
 #[tauri::command]
 pub fn update_analysis_item(kind: String, id: String, item: Value) -> Result<Value, String> {
     let kind = AnalysisKind::parse(&kind).ok_or_else(|| format!("Unknown kind: {kind}"))?;
+    if kind.is_cloud_report() {
+        return Err("Reports are stored in the cloud, not locally.".into());
+    }
     let id = id.trim();
     if !crate::paths::is_safe_item_id(id) {
         return Err("Invalid id.".into());
@@ -1384,6 +1638,7 @@ pub fn start_analysis(
     provider: Option<String>,
     model: Option<String>,
     composio_user_id: Option<String>,
+    member_reports: Option<Value>,
 ) -> Result<Value, String> {
     let kind = AnalysisKind::parse(&kind).ok_or_else(|| format!("Unknown kind: {kind}"))?;
     let start_date = start_date.trim().to_string();
@@ -1393,6 +1648,14 @@ pub fn start_analysis(
     }
     if start_date > end_date {
         return Err("End date must be on or after start date.".into());
+    }
+    if matches!(kind, AnalysisKind::TeamReports) {
+        let Some(reports) = member_reports.as_ref() else {
+            return Err("memberReports are required for team-reports analysis.".into());
+        };
+        if reports.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+            return Err("Select people who have reports in that timeframe.".into());
+        }
     }
 
     let state = app.state::<AnalysisState>();
@@ -1420,12 +1683,28 @@ pub fn start_analysis(
         .filter(|v| !v.is_empty())
         .unwrap_or("");
 
-    let composio_user = composio_user_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(str::to_string);
-    let toolkits = connected_toolkits(composio_user.as_deref());
+    if matches!(kind, AnalysisKind::TeamReports) {
+        if let Some(reports) = member_reports.as_ref() {
+            stage_member_reports(&job_id, reports)?;
+        }
+    }
+
+    // Team synthesis does not need Composio / personal capture tooling.
+    let skip_composio = matches!(kind, AnalysisKind::TeamReports);
+    let composio_user = if skip_composio {
+        None
+    } else {
+        composio_user_id
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string)
+    };
+    let toolkits = if skip_composio {
+        Vec::new()
+    } else {
+        connected_toolkits(composio_user.as_deref())
+    };
     let composio_attached = composio_user.is_some() && crate::composio_api_key().is_ok();
 
     stop_process(&state);
@@ -1490,7 +1769,9 @@ pub fn start_analysis(
             kind,
         },
     );
-    let status_message = if composio_attached {
+    let status_message = if matches!(kind, AnalysisKind::TeamReports) {
+        "Reading teammate reports and writing the team synthesis…".into()
+    } else if composio_attached {
         if toolkits.is_empty() {
             format!(
                 "Analyzing capture + connected apps for {}…",
@@ -1535,6 +1816,7 @@ pub fn abort_analysis(app: AppHandle) -> Result<(), String> {
     };
     if let Some(job_id) = &job_id {
         let _ = fs::remove_file(JarbasPaths::analysis_job_file(job_id));
+        cleanup_analysis_context(job_id);
     }
     stop_process(&state);
     {

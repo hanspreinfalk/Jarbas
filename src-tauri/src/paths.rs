@@ -162,7 +162,7 @@ impl JarbasPaths {
         Self::root().join("opportunities")
     }
 
-    /// AI-generated work reports (one JSON file per report).
+    /// Legacy local reports dir. Reports are Convex-only now; kept for cleanup of old files.
     pub fn reports_dir() -> PathBuf {
         Self::root().join("reports")
     }
@@ -170,6 +170,11 @@ impl JarbasPaths {
     /// Staging file for an in-flight analysis job.
     pub fn analysis_job_file(job_id: &str) -> PathBuf {
         Self::root().join(format!(".analysis-job-{job_id}.json"))
+    }
+
+    /// Staged member reports for a team-reports analysis job.
+    pub fn analysis_context_dir(job_id: &str) -> PathBuf {
+        Self::root().join(format!(".analysis-context-{job_id}"))
     }
 
     /// Saved analysis chat transcripts (shared across items from one run).
@@ -194,11 +199,16 @@ impl JarbasPaths {
             Self::videos_dir(),
             Self::learnings_dir(),
             Self::opportunities_dir(),
-            Self::reports_dir(),
+            // reports/ is intentionally omitted — cloud-only (Convex)
             Self::analysis_runs_dir(),
         ] {
             std::fs::create_dir_all(&dir)
                 .map_err(|error| format!("Could not create {}: {error}", dir.display()))?;
+        }
+        // Remove leftover local reports from older builds (best-effort).
+        let legacy_reports = Self::reports_dir();
+        if legacy_reports.is_dir() {
+            let _ = std::fs::remove_dir_all(&legacy_reports);
         }
         Ok(())
     }

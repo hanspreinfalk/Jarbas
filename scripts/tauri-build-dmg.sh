@@ -6,9 +6,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-ENV_FILE="$ROOT/.env"
+ENV_FILE="$ROOT/.env.local"
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "error: missing .env — copy .env.example and fill Apple signing vars." >&2
+  echo "error: missing .env.local — copy .env.example to .env.local and fill Apple signing vars." >&2
   exit 1
 fi
 
@@ -33,7 +33,7 @@ for key in APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
   fi
 done
 if ((${#missing[@]})); then
-  echo "error: missing required env vars in .env: ${missing[*]}" >&2
+  echo "error: missing required env vars in .env.local: ${missing[*]}" >&2
   exit 1
 fi
 

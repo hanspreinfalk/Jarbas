@@ -316,6 +316,7 @@ export function AnalysisChatPanel({
     status: status ?? null,
     live,
     stopping,
+    kind: transcript.kind,
   });
 
   const completedCount = phases.filter((phase) => phase.done).length;

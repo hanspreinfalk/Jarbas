@@ -32,7 +32,12 @@ type AnalysisRunContextValue = {
   clearRun: () => void;
   /** Completed ids waiting for the matching page to refresh/select. */
   completedIds: string[] | null;
-  consumeCompleted: () => string[] | null;
+  /** Cloud-bound payloads (e.g. reports) emitted with the completed event. */
+  completedItems: unknown[] | null;
+  consumeCompleted: () => {
+    ids: string[];
+    items: unknown[] | null;
+  } | null;
 };
 
 const AnalysisRunContext = createContext<AnalysisRunContextValue | null>(null);
@@ -45,6 +50,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
   const [done, setDone] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [completedIds, setCompletedIds] = useState<string[] | null>(null);
+  const [completedItems, setCompletedItems] = useState<unknown[] | null>(null);
 
   const jobIdRef = useRef<string | null>(null);
   const kindRef = useRef<AnalysisKind | null>(null);
@@ -181,6 +187,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
         setStopping(false);
         setStatus(null);
         setCompletedIds(event.ids);
+        setCompletedItems(event.items ?? null);
         setTranscript((current) =>
           current
             ? {
@@ -237,6 +244,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
     setDone(false);
     setStopping(false);
     setCompletedIds(null);
+    setCompletedItems(null);
   }, []);
 
   const stopRun = useCallback(async () => {
@@ -261,13 +269,19 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
     setDone(false);
     setStopping(false);
     setCompletedIds(null);
+    setCompletedItems(null);
   }, []);
 
   const consumeCompleted = useCallback(() => {
-    const ids = completedIds;
+    if (!completedIds) return null;
+    const result = {
+      ids: completedIds,
+      items: completedItems,
+    };
     setCompletedIds(null);
-    return ids;
-  }, [completedIds]);
+    setCompletedItems(null);
+    return result;
+  }, [completedIds, completedItems]);
 
   const value = useMemo<AnalysisRunContextValue>(
     () => ({
@@ -282,6 +296,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
       stopRun,
       clearRun,
       completedIds,
+      completedItems,
       consumeCompleted,
     }),
     [
@@ -295,6 +310,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
       stopRun,
       clearRun,
       completedIds,
+      completedItems,
       consumeCompleted,
     ],
   );

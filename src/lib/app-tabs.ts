@@ -6,6 +6,7 @@ import {
   Bot,
   FileBarChart,
   MessageSquare,
+  Network,
   Plug,
   Settings,
   Sparkles,
@@ -21,12 +22,15 @@ export type AppTabId =
   | "connectors"
   | "settings"
   | "redactions"
-  | "ask";
+  | "ask"
+  | "multi-team-analysis";
 
 export type AppTab = {
   id: AppTabId;
   label: string;
   icon: ComponentType<{ className?: string }>;
+  /** Shown only when Clerk org role is `org:admin`. */
+  adminOnly?: boolean;
 };
 
 /** Labels for pages that are not always in the sidebar (e.g. settings subpages). */
@@ -41,6 +45,7 @@ export const APP_PAGE_LABELS: Record<AppTabId, string> = {
   observability: "Observability",
   settings: "Settings",
   redactions: "Redactions",
+  "multi-team-analysis": "Team analysis",
 };
 
 export const APP_TABS: AppTab[] = [
@@ -75,6 +80,12 @@ export const APP_TABS: AppTab[] = [
     icon: FileBarChart,
   },
   {
+    id: "multi-team-analysis",
+    label: "Team analysis",
+    icon: Network,
+    adminOnly: true,
+  },
+  {
     id: "agents",
     label: "Agents",
     icon: Bot,
@@ -90,3 +101,7 @@ export const APP_TABS: AppTab[] = [
     icon: Settings,
   },
 ];
+
+export function visibleAppTabs(isOrgAdmin: boolean): AppTab[] {
+  return APP_TABS.filter((tab) => !tab.adminOnly || isOrgAdmin);
+}

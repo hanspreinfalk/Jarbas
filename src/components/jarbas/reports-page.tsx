@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useAuth } from "@clerk/clerk-react";
+import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   CalendarDays,
@@ -40,12 +42,9 @@ import {
   ChartTooltipContent,
   type ChartConfig,
 } from "@/components/ui/chart";
-import {
-  deleteAnalysisItem,
-  listAnalysisItems,
-  updateAnalysisItem,
-  type AnalysisTranscript,
-} from "@/lib/analysis";
+import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
+import type { AnalysisTranscript } from "@/lib/analysis";
 import { formatRangeLabel } from "@/lib/date-range";
 import { exportReportPdf } from "@/lib/export-report-pdf";
 import { normalizeWorkReport, type WorkReport } from "@/lib/reports";
@@ -165,12 +164,18 @@ function ReportDetail({
   onBack,
   onSaved,
   onDeleted,
+  readOnly = false,
+  backLabel = "All reports",
 }: {
   report: WorkReport;
   onBack: () => void;
   onSaved: (report: WorkReport) => void;
   onDeleted: () => void;
+  readOnly?: boolean;
+  backLabel?: string;
 }) {
+  const updateReport = useMutation(api.reports.update);
+  const removeReport = useMutation(api.reports.remove);
   const reportRef = useRef<HTMLDivElement | null>(null);
   const [exporting, setExporting] = useState(false);
   const [tab, setTab] = useState<"details" | "ai">("details");
@@ -257,21 +262,24 @@ function ReportDetail({
     setSaving(true);
     setActionError(null);
     try {
-      const next = await updateAnalysisItem<WorkReport>("reports", report.id, {
-        ...report,
-        title: draft.title.trim(),
-        subtitle: draft.subtitle.trim(),
-        period: draft.period.trim(),
-        person: draft.person.trim(),
-        role: draft.role.trim(),
-        headline: draft.headline.trim(),
-        executiveBrief: draft.executiveBrief.trim(),
-        keyInsight: draft.keyInsight.trim(),
-        deliveryUnlock: draft.deliveryUnlock.trim(),
-        impactOnce: draft.impactOnce.trim(),
-        improvements: linesToList(draft.improvements),
+      const next = await updateReport({
+        id: report.id as Id<"reports">,
+        payload: {
+          ...report,
+          title: draft.title.trim(),
+          subtitle: draft.subtitle.trim(),
+          period: draft.period.trim(),
+          person: draft.person.trim(),
+          role: draft.role.trim(),
+          headline: draft.headline.trim(),
+          executiveBrief: draft.executiveBrief.trim(),
+          keyInsight: draft.keyInsight.trim(),
+          deliveryUnlock: draft.deliveryUnlock.trim(),
+          impactOnce: draft.impactOnce.trim(),
+          improvements: linesToList(draft.improvements),
+        },
       });
-      onSaved(normalizeWorkReport(next));
+      onSaved(normalizeWorkReport(next as unknown as WorkReport));
       setEditing(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
@@ -284,7 +292,7 @@ function ReportDetail({
     setDeleting(true);
     setActionError(null);
     try {
-      await deleteAnalysisItem("reports", report.id);
+      await removeReport({ id: report.id as Id<"reports"> });
       setConfirmDelete(false);
       onDeleted();
     } catch (error) {
@@ -304,13 +312,13 @@ function ReportDetail({
           className="-ml-2 rounded-none text-muted-foreground"
         >
           <ArrowLeft className="size-3.5" />
-          All reports
+          {backLabel}
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          {!editing ? (
+          {!readOnly && !editing ? (
             <AnalysisRunButton tab={tab} onTabChange={setTab} />
           ) : null}
-          {tab === "details" ? (
+          {tab === "details" && !readOnly ? (
             <AnalysisItemToolbar
               editing={editing}
               saving={saving}
@@ -966,45 +974,83 @@ function ReportDetail({
   );
 }
 
+export function ReportDetailView({
+  report,
+  onBack,
+  onSaved,
+  onDeleted,
+  readOnly = false,
+  backLabel = "All reports",
+}: {
+  report: WorkReport;
+  onBack: () => void;
+  onSaved?: (report: WorkReport) => void;
+  onDeleted?: () => void;
+  readOnly?: boolean;
+  backLabel?: string;
+}) {
+  return (
+    <ReportDetail
+      report={report}
+      onBack={onBack}
+      onSaved={onSaved ?? (() => undefined)}
+      onDeleted={onDeleted ?? (() => undefined)}
+      readOnly={readOnly}
+      backLabel={backLabel}
+    />
+  );
+}
+
 export function ReportsPage() {
-  const [reports, setReports] = useState<WorkReport[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { orgId } = useAuth();
+  const createReport = useMutation(api.reports.create);
+  const cloudReports = useQuery(
+    api.reports.listMine,
+    orgId ? { organizationId: orgId } : "skip",
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const { meta, startRun, clearRun } = useAnalysisRun();
 
-  const refresh = useCallback(async (preferId?: string) => {
-    setLoading(true);
-    setLoadError(null);
-    try {
-      const next = (await listAnalysisItems<WorkReport>("reports")).map(
-        normalizeWorkReport,
-      );
-      setReports(next);
-      if (preferId) setSelectedId(preferId);
-      return next;
-    } catch (error) {
-      console.error("Failed to load reports", error);
-      setLoadError(error instanceof Error ? error.message : String(error));
-      return [] as WorkReport[];
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  const reports = useMemo(
+    () =>
+      (cloudReports ?? []).map((row) =>
+        normalizeWorkReport(row as unknown as WorkReport),
+      ),
+    [cloudReports],
+  );
+  const loading = Boolean(orgId) && cloudReports === undefined;
 
   if (meta?.kind === "reports") {
     return (
       <AnalysisRunView
         onErrorBack={() => clearRun()}
-        onCompleted={(ids) => {
-          void refresh(ids[0]).then(() => {
-            clearRun();
-          });
+        onCompleted={({ items }) => {
+          void (async () => {
+            try {
+              setSaveError(null);
+              if (!orgId) {
+                throw new Error("Select an organization before saving a report.");
+              }
+              const payload = items?.[0];
+              if (!payload || typeof payload !== "object") {
+                throw new Error("Analysis finished but no report payload was returned.");
+              }
+              const saved = await createReport({
+                organizationId: orgId,
+                payload,
+              });
+              clearRun();
+              setSelectedId(String(saved.id));
+            } catch (error) {
+              console.error("Failed to save report to Convex", error);
+              setSaveError(
+                error instanceof Error ? error.message : String(error),
+              );
+              clearRun();
+            }
+          })();
         }}
       />
     );
@@ -1017,15 +1063,10 @@ export function ReportsPage() {
       <ReportDetail
         report={selected}
         onBack={() => setSelectedId(null)}
-        onSaved={(next) => {
-          setReports((current) =>
-            current.map((item) => (item.id === next.id ? next : item)),
-          );
+        onSaved={() => {
+          // Convex query will refresh; keep selection.
         }}
         onDeleted={() => {
-          setReports((current) =>
-            current.filter((item) => item.id !== selected.id),
-          );
           setSelectedId(null);
         }}
       />
@@ -1043,6 +1084,7 @@ export function ReportsPage() {
           <Button
             type="button"
             className="shrink-0 rounded-none self-start sm:self-auto"
+            disabled={!orgId}
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
@@ -1051,13 +1093,19 @@ export function ReportsPage() {
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
           The full package for a period: timeline, explanation, learnings, and
-          opportunities.
+          opportunities. Saved to your organization in the cloud.
         </p>
       </div>
 
-      {loadError ? (
+      {!orgId ? (
+        <p className="mt-8 border border-border bg-card px-3 py-2 text-sm text-muted-foreground">
+          Select an organization to view and save reports.
+        </p>
+      ) : null}
+
+      {saveError ? (
         <p className="mt-8 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-          {loadError}
+          {saveError}
         </p>
       ) : null}
 
@@ -1078,6 +1126,7 @@ export function ReportsPage() {
           <Button
             type="button"
             className="mt-6 rounded-none"
+            disabled={!orgId}
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />

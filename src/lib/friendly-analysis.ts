@@ -95,6 +95,16 @@ const PHASE_LABEL: Record<FriendlyPhaseId, string> = {
   stopping: "Stopping",
 };
 
+const TEAM_PHASE_LABEL: Record<FriendlyPhaseId, string> = {
+  starting: "Getting started",
+  screen: "Reading teammate reports",
+  apps: "Comparing across people",
+  thinking: "Synthesizing the team view",
+  writing: "Writing the team report",
+  finishing: "Wrapping up",
+  stopping: "Stopping",
+};
+
 export function friendlyKindVerb(kind: AnalysisKind): string {
   switch (kind) {
     case "learnings":
@@ -103,6 +113,8 @@ export function friendlyKindVerb(kind: AnalysisKind): string {
       return "Finding opportunities";
     case "reports":
       return "Building your report";
+    case "team-reports":
+      return "Building team report";
   }
 }
 
@@ -117,6 +129,8 @@ export function friendlyPromptLabel(
       return `Find opportunities for ${rangeLabel}`;
     case "reports":
       return `Build a full report for ${rangeLabel}`;
+    case "team-reports":
+      return `Build a team report for ${rangeLabel}`;
   }
 }
 
@@ -126,15 +140,17 @@ export function buildFriendlyProgress(options: {
   status: string | null;
   live: boolean;
   stopping?: boolean;
+  kind?: AnalysisKind;
 }): { headline: string; phases: FriendlyPhase[] } {
-  const { tools, status, live, stopping } = options;
+  const { tools, status, live, stopping, kind } = options;
+  const labels = kind === "team-reports" ? TEAM_PHASE_LABEL : PHASE_LABEL;
 
   if (stopping || /stopp/i.test(status ?? "")) {
     return {
-      headline: PHASE_LABEL.stopping,
+      headline: labels.stopping,
       phases: PHASE_ORDER.map((id) => ({
         id,
-        label: PHASE_LABEL[id],
+        label: labels[id],
         done: false,
         active: false,
       })),
@@ -146,7 +162,7 @@ export function buildFriendlyProgress(options: {
       headline: "Finished",
       phases: PHASE_ORDER.map((id) => ({
         id,
-        label: PHASE_LABEL[id],
+        label: labels[id],
         done: true,
         active: false,
       })),
@@ -170,10 +186,10 @@ export function buildFriendlyProgress(options: {
   const active = PHASE_ORDER[activeIndex] ?? "starting";
 
   return {
-    headline: PHASE_LABEL[active],
+    headline: labels[active],
     phases: PHASE_ORDER.map((id, index) => ({
       id,
-      label: PHASE_LABEL[id],
+      label: labels[id],
       done: index < activeIndex,
       active: id === active,
     })),

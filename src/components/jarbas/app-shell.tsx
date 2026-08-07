@@ -1,4 +1,5 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useMemo, useState, type CSSProperties } from "react";
+import { useAuth } from "@clerk/clerk-react";
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +21,7 @@ import { AppHeaderActions } from "@/components/jarbas/app-header-actions";
 import { AskPage } from "@/components/jarbas/ask-page";
 import { ConnectorsPage } from "@/components/jarbas/connectors-page";
 import { LearningsPage } from "@/components/jarbas/learnings-page";
+import { MultiTeamAnalysisPage } from "@/components/jarbas/multi-team-analysis-page";
 import { ObservabilityPage } from "@/components/jarbas/observability-page";
 import { OpportunitiesPage } from "@/components/jarbas/opportunities-page";
 import { RecordingPage } from "@/components/jarbas/recording-page";
@@ -27,15 +29,29 @@ import { RedactionsPage } from "@/components/jarbas/redactions-page";
 import { ReportsPage } from "@/components/jarbas/reports-page";
 import { SettingsPage } from "@/components/jarbas/settings-page";
 import { SidebarUserMenu } from "@/components/jarbas/sidebar-user-menu";
+import { PageErrorBoundary } from "@/components/jarbas/page-error-boundary";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { APP_PAGE_LABELS, APP_TABS, type AppTabId } from "@/lib/app-tabs";
+import {
+  APP_PAGE_LABELS,
+  visibleAppTabs,
+  type AppTabId,
+} from "@/lib/app-tabs";
 import { cn } from "@/lib/utils";
 
 export type { AppTabId } from "@/lib/app-tabs";
 
 export function AppShell() {
+  const { orgRole } = useAuth();
+  const isOrgAdmin = orgRole === "org:admin";
+  const tabs = useMemo(() => visibleAppTabs(isOrgAdmin), [isOrgAdmin]);
   const [activeId, setActiveId] = useState<AppTabId>("ask");
   const pageLabel = APP_PAGE_LABELS[activeId];
+
+  useEffect(() => {
+    if (activeId === "multi-team-analysis" && !isOrgAdmin) {
+      setActiveId("ask");
+    }
+  }, [activeId, isOrgAdmin]);
 
   return (
     <TooltipProvider>
@@ -66,7 +82,7 @@ export function AppShell() {
               <SidebarGroup className="p-0">
                 <SidebarGroupContent>
                   <SidebarMenu className="gap-0.5">
-                    {APP_TABS.map((tab) => {
+                    {tabs.map((tab) => {
                       const active =
                         tab.id === activeId ||
                         (activeId === "redactions" && tab.id === "settings");
@@ -89,6 +105,16 @@ export function AppShell() {
                             <span className="truncate group-data-[collapsible=icon]:hidden">
                               {tab.label}
                             </span>
+                            {tab.adminOnly ? (
+                              <span
+                                className={cn(
+                                  "shrink-0 border border-orange-500/30 bg-orange-500 px-1 py-0.5 text-[8px] font-medium leading-none tracking-wide text-white uppercase group-data-[collapsible=icon]:hidden",
+                                  active && "border-orange-300/50 bg-orange-400",
+                                )}
+                              >
+                                Admin
+                              </span>
+                            ) : null}
                           </SidebarMenuButton>
                         </SidebarMenuItem>
                       );
@@ -114,6 +140,7 @@ export function AppShell() {
               <AppHeaderActions
                 activeId={activeId}
                 onNavigate={setActiveId}
+                isOrgAdmin={isOrgAdmin}
               />
             </header>
 
@@ -125,6 +152,7 @@ export function AppShell() {
                 activeId === "ask" ? "overflow-hidden" : "overflow-y-auto",
               )}
             >
+              <PageErrorBoundary resetKey={activeId}>
               {activeId === "recording" ? (
                 <RecordingPage />
               ) : activeId === "learnings" ? (
@@ -141,11 +169,14 @@ export function AppShell() {
                 <ConnectorsPage />
               ) : activeId === "ask" ? (
                 <AskPage />
+              ) : activeId === "multi-team-analysis" && isOrgAdmin ? (
+                <MultiTeamAnalysisPage />
               ) : activeId === "redactions" ? (
                 <RedactionsPage onNavigate={setActiveId} />
               ) : (
                 <SettingsPage onNavigate={setActiveId} />
               )}
+              </PageErrorBoundary>
             </div>
           </SidebarInset>
         </SidebarProvider>

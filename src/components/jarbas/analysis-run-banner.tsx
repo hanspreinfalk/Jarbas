@@ -5,10 +5,14 @@ import type { AppTabId } from "@/lib/app-tabs";
 import { friendlyKindVerb } from "@/lib/friendly-analysis";
 import { cn } from "@/lib/utils";
 
-const KIND_TAB: Record<"learnings" | "opportunities" | "reports", AppTabId> = {
+const KIND_TAB: Record<
+  "learnings" | "opportunities" | "reports" | "team-reports",
+  AppTabId
+> = {
   learnings: "learnings",
   opportunities: "opportunities",
   reports: "reports",
+  "team-reports": "multi-team-analysis",
 };
 
 export function AnalysisRunBanner({

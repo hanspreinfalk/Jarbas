@@ -1,5 +1,4 @@
 import { useMutation, useQuery } from "convex/react";
-import { useEffect } from "react";
 import {
   ClerkLoaded,
   ClerkLoading,
@@ -27,7 +26,7 @@ function SignedInGate() {
   const { session } = useSession();
   const me = useQuery(api.user.me);
   const completeOnboarding = useMutation(api.user.completeOnboarding);
-  const { isLoaded, userMemberships, setActive } = useOrganizationList({
+  const { isLoaded, userMemberships } = useOrganizationList({
     userMemberships: {
       infinite: true,
     },
@@ -35,43 +34,18 @@ function SignedInGate() {
 
   const memberships = userMemberships.data ?? [];
   const needsOrganization = session?.currentTask?.key === "choose-organization";
-  const existingOrgId = memberships[0]?.organization.id;
 
-  // Org may already exist (create succeeded earlier) while the session task
-  // is still pending - activate it instead of forcing another create form.
-  useEffect(() => {
-    if (!needsOrganization || !isLoaded || userMemberships.isLoading) return;
-    if (!existingOrgId || !setActive) return;
-    void setActive({
-      organization: existingOrgId,
-      navigate: async () => undefined,
-    }).catch((error) => {
-      console.error("Failed to activate organization for session task", error);
-    });
-  }, [
-    existingOrgId,
-    isLoaded,
-    needsOrganization,
-    setActive,
-    userMemberships.isLoading,
-  ]);
-
-  if (needsOrganization) {
-    if (!isLoaded || userMemberships.isLoading) {
-      return <GateLoading />;
-    }
-    if (memberships.length === 0) {
-      return <OrgGate />;
-    }
+  if (!isLoaded || userMemberships.isLoading) {
     return <GateLoading />;
   }
 
-  if (!isLoaded || userMemberships.isLoading || me === undefined) {
-    return <GateLoading />;
-  }
-
-  if (memberships.length === 0) {
+  // Pending choose-organization task, or no membership yet → pick invite / org / create.
+  if (needsOrganization || memberships.length === 0) {
     return <OrgGate />;
+  }
+
+  if (me === undefined) {
+    return <GateLoading />;
   }
 
   if (!me?.user?.hasFinishedOnboarding) {

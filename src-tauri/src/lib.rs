@@ -149,15 +149,16 @@ struct ToolkitListResponse {
 }
 
 pub(crate) fn load_env() {
+    // Prefer project-root .env.local (Vite + Convex convention). Fallbacks for cwd variants.
+    let _ = dotenvy::from_filename("../.env.local");
+    let _ = dotenvy::from_filename(".env.local");
     let _ = dotenvy::dotenv();
-    let _ = dotenvy::from_filename("../.env");
-    let _ = dotenvy::from_filename(".env");
 }
 
 pub(crate) fn composio_api_key() -> Result<String, String> {
     load_env();
     std::env::var("COMPOSIO_API_KEY")
-        .map_err(|_| "COMPOSIO_API_KEY is not set. Add it to .env in the project root.".into())
+        .map_err(|_| "COMPOSIO_API_KEY is not set. Add it to .env.local in the project root.".into())
 }
 
 #[tauri::command]

@@ -9,7 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { APP_TABS, type AppTabId } from "@/lib/app-tabs";
+import { visibleAppTabs, type AppTabId } from "@/lib/app-tabs";
 import { jarbasClerkAppearance } from "@/lib/clerk-appearance";
 import { cn } from "@/lib/utils";
 
@@ -24,18 +24,21 @@ function Kbd({ children }: { children: ReactNode }) {
 export function AppHeaderActions({
   activeId,
   onNavigate,
+  isOrgAdmin = false,
 }: {
   activeId: AppTabId;
   onNavigate: (id: AppTabId) => void;
+  isOrgAdmin?: boolean;
 }) {
   const [searchOpen, setSearchOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const tabs = useMemo(() => visibleAppTabs(isOrgAdmin), [isOrgAdmin]);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return APP_TABS;
-    return APP_TABS.filter((tab) => tab.label.toLowerCase().includes(q));
-  }, [query]);
+    if (!q) return tabs;
+    return tabs.filter((tab) => tab.label.toLowerCase().includes(q));
+  }, [query, tabs]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -120,8 +123,13 @@ export function AppHeaderActions({
                       )}
                     >
                       <Icon className="size-4 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate font-medium">
-                        {tab.label}
+                      <span className="flex min-w-0 flex-1 items-center gap-1.5">
+                        <span className="truncate font-medium">{tab.label}</span>
+                        {tab.adminOnly ? (
+                          <span className="shrink-0 border border-orange-500/30 bg-orange-500 px-1 py-0.5 text-[8px] font-medium leading-none tracking-wide text-white uppercase">
+                            Admin
+                          </span>
+                        ) : null}
                       </span>
                       {active ? (
                         <Check className="size-3.5 shrink-0 text-foreground" />

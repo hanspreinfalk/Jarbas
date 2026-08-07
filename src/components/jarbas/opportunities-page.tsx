@@ -464,7 +464,7 @@ export function OpportunitiesPage() {
     return (
       <AnalysisRunView
         onErrorBack={() => clearRun()}
-        onCompleted={(ids) => {
+        onCompleted={({ ids }) => {
           void refresh().then(() => {
             clearRun();
             if (ids[0]) setSelectedId(ids[0]);

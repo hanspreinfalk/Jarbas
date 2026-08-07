@@ -1,7 +1,11 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 
-export type AnalysisKind = "learnings" | "opportunities" | "reports";
+export type AnalysisKind =
+  | "learnings"
+  | "opportunities"
+  | "reports"
+  | "team-reports";
 
 export type AnalysisToolCall = {
   id: string;
@@ -48,7 +52,7 @@ export type AnalysisEvent =
       isError: boolean;
       result: string;
     }
-  | { type: "completed"; jobId: string; kind: AnalysisKind; ids: string[] }
+  | { type: "completed"; jobId: string; kind: AnalysisKind; ids: string[]; items?: unknown[] }
   | { type: "cancelled"; jobId: string }
   | { type: "error"; jobId?: string | null; message: string };
 
@@ -130,6 +134,8 @@ export async function startAnalysis(options: {
   provider?: string;
   model?: string;
   composioUserId?: string | null;
+  /** Member report payloads for team-reports synthesis (Convex docs / WorkReport JSON). */
+  memberReports?: unknown[] | null;
 }): Promise<StartAnalysisResult> {
   const { timeZone, localTime } = userLocalTimeContext();
   return invoke<StartAnalysisResult>("start_analysis", {
@@ -141,6 +147,7 @@ export async function startAnalysis(options: {
     provider: options.provider ?? null,
     model: options.model ?? null,
     composioUserId: options.composioUserId ?? null,
+    memberReports: options.memberReports ?? null,
   });
 }
 
