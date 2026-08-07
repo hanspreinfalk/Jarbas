@@ -138,7 +138,10 @@ const REDACTION_CATEGORY_LABELS: Record<string, string> = {
 };
 
 export function redactionCategoryLabel(tag: string): string {
-  return REDACTION_CATEGORY_LABELS[tag] ?? tag.replaceAll("_", " ").toLowerCase();
+  return (
+    REDACTION_CATEGORY_LABELS[tag] ??
+    tag.replace(/_/g, " ").toLowerCase()
+  );
 }
 
 /** Scrub emails, keys, passwords, cards, etc. from stored capture text. */
