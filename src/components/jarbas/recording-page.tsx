@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Check, Circle, Loader2, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useRecordingStatus } from "@/components/jarbas/recording-status-provider";
 import { toInputDate } from "@/lib/date-range";
 import { cn } from "@/lib/utils";
 import {
@@ -26,7 +27,7 @@ function formatElapsed(totalSeconds: number) {
 type SessionRedactPhase = "idle" | "redacting" | "success" | "error";
 
 export function RecordingPage() {
-  const [recording, setRecording] = useState(false);
+  const { recording, setRecording } = useRecordingStatus();
   const [elapsed, setElapsed] = useState(0);
   const [lastSession, setLastSession] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -66,7 +67,7 @@ export function RecordingPage() {
     return () => {
       alive = false;
     };
-  }, [refreshLastSession]);
+  }, [refreshLastSession, setRecording]);
 
   useEffect(() => {
     if (!recording) return;
