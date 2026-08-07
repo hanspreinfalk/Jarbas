@@ -2,3 +2,18 @@
 identifier = "allow-list-composio-toolkits"
 description = "Allows listing Composio toolkits for the Connectors screen."
 commands.allow = ["list_composio_toolkits"]
+
+[[permission]]
+identifier = "allow-list-composio-connected-accounts"
+description = "Allows listing Composio connected accounts for the signed-in user."
+commands.allow = ["list_composio_connected_accounts"]
+
+[[permission]]
+identifier = "allow-create-composio-connect-link"
+description = "Allows creating a Composio connect link for a toolkit."
+commands.allow = ["create_composio_connect_link"]
+
+[[permission]]
+identifier = "allow-delete-composio-connected-account"
+description = "Allows deleting a Composio connected account."
+commands.allow = ["delete_composio_connected_account"]

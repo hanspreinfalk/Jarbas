@@ -11,6 +11,7 @@ pub const MCP_ADAPTER_VERSION: &str = "2.19.0";
 
 const APPEND_SYSTEM: &str = include_str!("../resources/pi/APPEND_SYSTEM.md");
 const JARBAS_SKILL: &str = include_str!("../resources/pi/skills/jarbas/SKILL.md");
+const COMPOSIO_SKILL: &str = include_str!("../resources/pi/skills/composio/SKILL.md");
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -252,31 +253,148 @@ fn write_config_files(app: &AppHandle) -> Result<(), String> {
         .map_err(|error| format!("Could not write APPEND_SYSTEM.md: {error}"))?;
     std::fs::write(JarbasPaths::jarbas_skill_file(), JARBAS_SKILL)
         .map_err(|error| format!("Could not write jarbas skill: {error}"))?;
+    std::fs::write(JarbasPaths::composio_skill_file(), COMPOSIO_SKILL)
+        .map_err(|error| format!("Could not write composio skill: {error}"))?;
+    ensure_composio_cli_on_path()?;
 
     let node = find_node(app)
         .map(|path| path.display().to_string())
         .unwrap_or_else(|| "bundled-node-missing".into());
 
-    // Standalone install: Pi tools (bash/read/…) only. MCP servers can be added later.
+    // Base MCP file; Ask process rewrites this with a per-user Tool Router session.
     let mcp = serde_json::json!({
         "settings": {
             "directTools": true,
             "toolPrefix": "none",
         },
         "mcpServers": {},
-        "note": format!("Bundled Node for future MCP bridges: {node}"),
+        "note": format!("Bundled Node for MCP bridges: {node}. Composio MCP is attached per Ask session."),
     });
     write_pretty_json(&JarbasPaths::mcp_config(), &mcp)?;
 
     let settings = serde_json::json!({
         "packages": ["npm:pi-mcp-adapter"],
-        "skills": [JarbasPaths::jarbas_skill_dir().display().to_string()],
+        "skills": [
+            JarbasPaths::jarbas_skill_dir().display().to_string(),
+            JarbasPaths::composio_skill_dir().display().to_string(),
+        ],
         "enableSkillCommands": true,
     });
     write_pretty_json(&JarbasPaths::settings_config(), &settings)?;
 
     let cache = JarbasPaths::pi_config().join("mcp-cache.json");
     let _ = std::fs::remove_file(cache);
+    Ok(())
+}
+
+/// Ensure an app-owned `composio` CLI under `~/.jarbas` (never `~/.composio`).
+fn ensure_composio_cli_on_path() -> Result<(), String> {
+    JarbasPaths::ensure_directories()?;
+    remove_personal_composio_link()?;
+
+    let binary = JarbasPaths::composio_cli_binary();
+    let entry = JarbasPaths::composio_cli();
+    if is_app_owned_composio(&binary, &entry) {
+        return Ok(());
+    }
+
+    install_app_owned_composio_cli()?;
+
+    if !is_app_owned_composio(&binary, &entry) {
+        return Err(
+            "Composio CLI install finished but ~/.jarbas/bin/composio is missing or still points outside ~/.jarbas."
+                .into(),
+        );
+    }
+    Ok(())
+}
+
+fn is_app_owned_composio(binary: &Path, entry: &Path) -> bool {
+    if !binary.is_file() {
+        return false;
+    }
+    // Prefer the real binary in composio-cli/. Entry may be the same path or a
+    // symlink into that tree — but never a link into ~/.composio.
+    if entry.is_symlink() {
+        if let Ok(target) = std::fs::read_link(entry) {
+            let resolved = if target.is_absolute() {
+                target
+            } else {
+                entry
+                    .parent()
+                    .unwrap_or_else(|| Path::new("."))
+                    .join(target)
+            };
+            let root = JarbasPaths::root();
+            return resolved.starts_with(&root) && resolved.is_file();
+        }
+        return false;
+    }
+    entry.exists() && entry.starts_with(JarbasPaths::root())
+}
+
+fn remove_personal_composio_link() -> Result<(), String> {
+    let entry = JarbasPaths::composio_cli();
+    if !entry.exists() && !entry.is_symlink() {
+        return Ok(());
+    }
+
+    let outside_jarbas = if entry.is_symlink() {
+        match std::fs::read_link(&entry) {
+            Ok(target) => {
+                let resolved = if target.is_absolute() {
+                    target
+                } else {
+                    entry
+                        .parent()
+                        .unwrap_or_else(|| Path::new("."))
+                        .join(target)
+                };
+                !resolved.starts_with(JarbasPaths::root())
+            }
+            Err(_) => true,
+        }
+    } else {
+        // Hard file in bin/: keep only if it lives under ~/.jarbas (it does by path).
+        false
+    };
+
+    if outside_jarbas {
+        let _ = std::fs::remove_file(&entry);
+    }
+    Ok(())
+}
+
+fn install_app_owned_composio_cli() -> Result<(), String> {
+    let install_dir = JarbasPaths::composio_cli_dir();
+    let bin_dir = JarbasPaths::bin_dir();
+    std::fs::create_dir_all(&install_dir)
+        .map_err(|error| format!("Could not create {}: {error}", install_dir.display()))?;
+    std::fs::create_dir_all(&bin_dir)
+        .map_err(|error| format!("Could not create {}: {error}", bin_dir.display()))?;
+
+    // Official installer: downloads a self-contained binary into INSTALL_DIR
+    // and puts an entry point in BIN_DIR. Never touches the user's ~/.composio.
+    let status = Command::new("bash")
+        .arg("-lc")
+        .arg("curl -fsSL https://composio.dev/install | bash")
+        .env("COMPOSIO_INSTALL_DIR", &install_dir)
+        .env("COMPOSIO_BIN_DIR", &bin_dir)
+        .env("COMPOSIO_INSTALL_SHELL", "none")
+        .env("COMPOSIO_INSTALL_HELP", "0")
+        .env("COMPOSIO_INSTALL_PLUGINS", "0")
+        .env("COMPOSIO_QUIET", "1")
+        .env("HOME", std::env::var_os("HOME").unwrap_or_else(|| "/tmp".into()))
+        .status()
+        .map_err(|error| format!("Failed to run Composio installer: {error}"))?;
+
+    if !status.success() {
+        return Err(format!(
+            "Composio installer exited with status {}. Need network access to composio.dev.",
+            status.code().unwrap_or(-1)
+        ));
+    }
+
     Ok(())
 }
 

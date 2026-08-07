@@ -13,6 +13,8 @@ import {
   Copy,
   Square,
 } from "lucide-react";
+import { useUser } from "@clerk/clerk-react";
+import { useQuery } from "convex/react";
 import Markdown from "react-markdown";
 import { Button } from "@/components/ui/button";
 import { ModelPicker } from "@/components/jarbas/model-picker";
@@ -34,6 +36,7 @@ import {
   type PiAgentStatus,
 } from "@/lib/pi-agent";
 import { cn } from "@/lib/utils";
+import { api } from "@convex/_generated/api";
 
 function AssistantMarkdown({ content }: { content: string }) {
   return (
@@ -490,6 +493,10 @@ function Composer({
 }
 
 export function AskPage() {
+  const { user } = useUser();
+  const me = useQuery(api.user.me);
+  const composioUserId =
+    me?.user?.composioUserId ?? user?.id ?? null;
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
@@ -778,7 +785,7 @@ export function AskPage() {
     setStreamError(null);
 
     try {
-      await askSendPrompt(trimmed);
+      await askSendPrompt(trimmed, { composioUserId });
     } catch (error) {
       const message =
         error instanceof Error ? error.message : String(error);

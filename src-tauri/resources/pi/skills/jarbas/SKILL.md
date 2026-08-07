@@ -25,6 +25,9 @@ For spoken/meeting context the user needs a separate source such as Granola.
 | `~/.jarbas/pi-config` | Pi settings, skills, APPEND_SYSTEM |
 | `~/.jarbas/pi-sessions` | Pi session files |
 | `~/.jarbas/npm-cache` | npm cache used by the installer |
+| `~/.jarbas/bin/composio` | App-owned Composio CLI entry (not `~/.composio`) |
+| `~/.jarbas/composio-cli/` | App-owned Composio CLI install tree |
+| `~/.jarbas/composio/` | App-owned Composio CLI cache / state |
 
 ## Dates
 
@@ -44,6 +47,8 @@ Never mention Screenpipe or other internal capture vendor/SDK names to the user.
 
 - Do not use tools for greetings or small talk.
 - Prefer `bash` / `read` under `~/.jarbas` only when you need local facts.
+- For external apps (email, Slack, GitHub, Notion, etc.), use the **composio** skill
+  via Tool Router MCP. Never run the `composio` CLI in bash for app actions.
 - Do not assume `~/.jarbas-main` exists or is related to this app.
 - Do not invent paths, IDs, or data that tools did not return.
 - Keep replies concise; extract the answer instead of dumping raw command output.

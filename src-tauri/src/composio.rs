@@ -255,3 +255,127 @@ pub async fn delete_composio_connected_account(account_id: String) -> Result<(),
 
     Ok(())
 }
+
+#[derive(Debug, Clone)]
+pub struct ToolRouterSession {
+    pub session_id: String,
+    pub mcp_url: String,
+}
+
+/// Create a Tool Router session for the signed-in Jarbas user (project API key + user id).
+pub async fn create_tool_router_session(user_id: &str) -> Result<ToolRouterSession, String> {
+    let trimmed = user_id.trim();
+    if trimmed.is_empty() {
+        return Err("Missing Composio user id.".into());
+    }
+
+    let api_key = composio_api_key()?;
+    let client = Client::new();
+    let response = client
+        .post("https://backend.composio.dev/api/v3.1/tool_router/session")
+        .header("x-api-key", api_key)
+        .json(&json!({
+            "user_id": trimmed,
+            "manage_connections": {
+                "enable": true,
+                "enable_wait_for_connections": false,
+                "enable_connection_removal": true
+            }
+        }))
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    let status = response.status();
+    let body = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(format!("Composio Tool Router error ({status}): {body}"));
+    }
+
+    let payload: Value = serde_json::from_str(&body).map_err(|error| error.to_string())?;
+    let session_id = payload
+        .get("session_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Composio Tool Router response missing session_id".to_string())?
+        .to_string();
+    let mcp_url = payload
+        .pointer("/mcp/url")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "Composio Tool Router response missing mcp.url".to_string())?
+        .to_string();
+
+    Ok(ToolRouterSession {
+        session_id,
+        mcp_url,
+    })
+}
+
+/// Write Pi `mcp.json` with a Tool Router MCP server scoped to this user.
+/// Call immediately before starting the Ask process.
+pub fn configure_composio_mcp_for_user(user_id: Option<&str>) -> Result<Option<String>, String> {
+    use crate::paths::JarbasPaths;
+
+    JarbasPaths::ensure_directories()?;
+    let cache = JarbasPaths::pi_config().join("mcp-cache.json");
+    let _ = std::fs::remove_file(&cache);
+
+    let Some(user_id) = user_id.map(str::trim).filter(|value| !value.is_empty()) else {
+        write_mcp_config(None, None)?;
+        return Ok(None);
+    };
+
+    if composio_api_key().is_err() {
+        write_mcp_config(None, None)?;
+        return Ok(None);
+    }
+
+    let session = tauri::async_runtime::block_on(create_tool_router_session(user_id))?;
+    write_mcp_config(Some(&session.mcp_url), Some(&session.session_id))?;
+    Ok(Some(session.session_id))
+}
+
+fn write_mcp_config(mcp_url: Option<&str>, session_id: Option<&str>) -> Result<(), String> {
+    use crate::paths::JarbasPaths;
+
+    let mcp = if let Some(url) = mcp_url {
+        json!({
+            "settings": {
+                "directTools": true,
+                "toolPrefix": "none",
+            },
+            "mcpServers": {
+                "composio": {
+                    "url": url,
+                    "headers": {
+                        "x-api-key": "${COMPOSIO_API_KEY}"
+                    },
+                    "lifecycle": "eager",
+                    "requestTimeoutMs": 120000
+                }
+            },
+            "note": format!(
+                "Composio Tool Router session {}",
+                session_id.unwrap_or("unknown")
+            ),
+        })
+    } else {
+        json!({
+            "settings": {
+                "directTools": true,
+                "toolPrefix": "none",
+            },
+            "mcpServers": {},
+            "note": "Composio MCP idle — sign in and open Ask to create a Tool Router session.",
+        })
+    };
+
+    let path = JarbasPaths::mcp_config();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("Could not create {}: {error}", parent.display()))?;
+    }
+    let body = serde_json::to_string_pretty(&mcp)
+        .map_err(|error| format!("Could not encode mcp.json: {error}"))?;
+    std::fs::write(&path, body + "\n")
+        .map_err(|error| format!("Could not write {}: {error}", path.display()))
+}

@@ -8,14 +8,24 @@ export async function openPrivacySettings(pane: string) {
   }
 }
 
+export type AccessibilityPermissionStatus = {
+  granted: boolean;
+  executablePath?: string | null;
+  processName?: string | null;
+};
+
 export async function checkAccessibilityPermission(): Promise<boolean> {
+  const status = await getAccessibilityPermissionStatus();
+  return status.granted;
+}
+
+export async function getAccessibilityPermissionStatus(): Promise<AccessibilityPermissionStatus> {
   try {
-    const result = await invoke<{ granted: boolean }>(
+    return await invoke<AccessibilityPermissionStatus>(
       "check_accessibility_permission",
     );
-    return Boolean(result?.granted);
   } catch (error) {
     console.error("Failed to check accessibility permission", error);
-    return false;
+    return { granted: false };
   }
 }

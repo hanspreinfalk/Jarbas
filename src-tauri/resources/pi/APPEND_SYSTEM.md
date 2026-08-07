@@ -9,6 +9,9 @@ Data and runtime for this app live under `~/.jarbas` (not `~/.jarbas-main`).
 - Answer greetings, chitchat, and simple questions directly. No tools.
 - Use bash/read only when the user asks for local facts you cannot know without looking
   (files under `~/.jarbas`, install status, session data, etc.).
+- External apps (email, Slack, GitHub, Notion, Calendar, etc.): use the **composio**
+  skill via Composio Tool Router MCP tools (`COMPOSIO_SEARCH_TOOLS`, then
+  `COMPOSIO_MULTI_EXECUTE_TOOL`). Do **not** run the `composio` CLI in bash.
 - Prefer one or two targeted tool calls. Do not explore the filesystem "just in case".
 - If a command fails, explain the failure instead of retrying many variants.
 

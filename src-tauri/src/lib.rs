@@ -46,14 +46,26 @@ fn open_privacy_settings(pane: String) -> Result<(), String> {
 #[serde(rename_all = "camelCase")]
 struct AccessibilityPermissionStatus {
     granted: bool,
+    executable_path: Option<String>,
+    process_name: Option<String>,
 }
 
 #[tauri::command]
 fn check_accessibility_permission() -> AccessibilityPermissionStatus {
+    let executable_path = std::env::current_exe()
+        .ok()
+        .map(|path| path.display().to_string());
+    let process_name = executable_path.as_ref().map(|path| {
+        std::path::Path::new(path)
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("jarbas")
+            .to_string()
+    });
+
     #[cfg(target_os = "macos")]
     {
         // macOS `Boolean` is a C unsigned char, not a Rust `bool`.
-        // Declaring this as `bool` can falsely report "not trusted".
         #[link(name = "ApplicationServices", kind = "framework")]
         extern "C" {
             fn AXIsProcessTrusted() -> u8;
@@ -66,12 +78,20 @@ fn check_accessibility_permission() -> AccessibilityPermissionStatus {
             with_options != 0 || basic != 0
         };
 
-        return AccessibilityPermissionStatus { granted };
+        return AccessibilityPermissionStatus {
+            granted,
+            executable_path,
+            process_name,
+        };
     }
 
     #[cfg(not(target_os = "macos"))]
     {
-        AccessibilityPermissionStatus { granted: false }
+        AccessibilityPermissionStatus {
+            granted: false,
+            executable_path,
+            process_name,
+        }
     }
 }
 
@@ -85,7 +105,7 @@ struct ToolkitListResponse {
     total_items: u64,
 }
 
-fn load_env() {
+pub(crate) fn load_env() {
     let _ = dotenvy::dotenv();
     let _ = dotenvy::from_filename("../.env");
     let _ = dotenvy::from_filename(".env");

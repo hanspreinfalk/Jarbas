@@ -21,8 +21,9 @@ import {
   type LlmSettings,
 } from "@/lib/llm-settings";
 import {
-  checkAccessibilityPermission,
+  getAccessibilityPermissionStatus,
   openPrivacySettings,
+  type AccessibilityPermissionStatus,
 } from "@/lib/privacy-settings";
 import {
   ensurePiAgentInstalled,
@@ -226,19 +227,22 @@ export function SettingsPage() {
     "screen-recording": false,
     accessibility: false,
   });
+  const [accessibilityInfo, setAccessibilityInfo] =
+    useState<AccessibilityPermissionStatus | null>(null);
 
   const refreshPermissions = useCallback(async () => {
-    const [screenOk, accessibilityOk] = await Promise.all([
+    const [screenOk, accessibilityStatus] = await Promise.all([
       screenpipe
         .permissions({ timeoutMs: 7500 })
         .then((status) => Boolean(status.screen))
         .catch(() => false),
-      checkAccessibilityPermission(),
+      getAccessibilityPermissionStatus(),
     ]);
 
+    setAccessibilityInfo(accessibilityStatus);
     setGranted({
       "screen-recording": screenOk,
-      accessibility: accessibilityOk,
+      accessibility: accessibilityStatus.granted,
     });
   }, []);
 
@@ -461,6 +465,11 @@ export function SettingsPage() {
           <ul className="divide-y divide-border">
             {PERMISSIONS.map((permission) => {
               const isGranted = granted[permission.id];
+              const showProcessHint =
+                permission.id === "accessibility" &&
+                !isGranted &&
+                (accessibilityInfo?.processName ||
+                  accessibilityInfo?.executablePath);
               return (
                 <li
                   key={permission.id}
@@ -473,6 +482,25 @@ export function SettingsPage() {
                     <p className="mt-1 text-sm text-muted-foreground">
                       {permission.description}
                     </p>
+                    {showProcessHint ? (
+                      <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                        Enable{" "}
+                        <span className="font-medium text-foreground">
+                          {accessibilityInfo?.processName ?? "jarbas"}
+                        </span>{" "}
+                        in System Settings → Accessibility
+                        {accessibilityInfo?.executablePath ? (
+                          <>
+                            {" "}
+                            <span className="break-all font-mono text-[11px]">
+                              ({accessibilityInfo.executablePath})
+                            </span>
+                          </>
+                        ) : null}
+                        . The packaged Jarbas app is a different entry from
+                        this development build.
+                      </p>
+                    ) : null}
                   </div>
                   <div className="flex shrink-0 items-center gap-2">
                     <span

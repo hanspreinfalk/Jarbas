@@ -57,6 +57,39 @@ impl JarbasPaths {
         Self::jarbas_skill_dir().join("SKILL.md")
     }
 
+    pub fn composio_skill_dir() -> PathBuf {
+        Self::skills_dir().join("composio")
+    }
+
+    pub fn composio_skill_file() -> PathBuf {
+        Self::composio_skill_dir().join("SKILL.md")
+    }
+
+    /// App-owned Composio Universal CLI install tree (`composio` binary + assets).
+    /// Never use `~/.composio` (the user's personal CLI).
+    pub fn composio_cli_dir() -> PathBuf {
+        Self::root().join("composio-cli")
+    }
+
+    /// Jarbas-only Composio CLI state (user_data, cache). Isolated from `~/.composio`.
+    pub fn composio_home() -> PathBuf {
+        Self::root().join("composio")
+    }
+
+    /// Composio Universal CLI binary symlink / install location for Ask.
+    pub fn bin_dir() -> PathBuf {
+        Self::root().join("bin")
+    }
+
+    pub fn composio_cli() -> PathBuf {
+        Self::bin_dir().join("composio")
+    }
+
+    /// Real binary inside the app-owned install tree (not a personal symlink).
+    pub fn composio_cli_binary() -> PathBuf {
+        Self::composio_cli_dir().join("composio")
+    }
+
     /// Provider/model preference + API keys for Ask / Pi.
     pub fn llm_settings() -> PathBuf {
         Self::root().join("llm.json")
@@ -81,6 +114,10 @@ impl JarbasPaths {
             Self::npm_cache(),
             Self::skills_dir(),
             Self::jarbas_skill_dir(),
+            Self::composio_skill_dir(),
+            Self::bin_dir(),
+            Self::composio_cli_dir(),
+            Self::composio_home(),
             Self::capture_dir(),
             Self::videos_dir(),
         ] {

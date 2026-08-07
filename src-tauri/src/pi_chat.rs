@@ -59,12 +59,15 @@ struct PiProcess {
     stdin: ChildStdin,
     provider: String,
     model: String,
+    composio_user_id: Option<String>,
 }
 
 pub struct AskChatState {
     process: Mutex<Option<PiProcess>>,
     pending: Mutex<HashMap<String, PendingResponse>>,
     next_id: AtomicU64,
+    /// Signed-in Composio user id for the next / current Pi process.
+    composio_user_id: Mutex<Option<String>>,
 }
 
 impl Default for AskChatState {
@@ -73,6 +76,7 @@ impl Default for AskChatState {
             process: Mutex::new(None),
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
+            composio_user_id: Mutex::new(None),
         }
     }
 }
@@ -303,6 +307,38 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(JarbasPaths::root);
 
+    let composio_user_id = state
+        .composio_user_id
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
+
+    // Attach Composio Tool Router MCP for this user before spawning Pi.
+    match crate::composio::configure_composio_mcp_for_user(composio_user_id.as_deref()) {
+        Ok(Some(session_id)) => {
+            eprintln!("[ask] composio tool router session {session_id}");
+        }
+        Ok(None) => {
+            eprintln!("[ask] composio MCP not attached (missing user id or API key)");
+        }
+        Err(error) => {
+            eprintln!("[ask] composio MCP setup failed: {error}");
+            // Still start Ask for local questions; skill will explain app tools unavailable.
+            let _ = crate::composio::configure_composio_mcp_for_user(None);
+        }
+    }
+
+    let node_bin = node
+        .parent()
+        .map(|path| path.display().to_string())
+        .unwrap_or_default();
+    // Prefer app-owned ~/.jarbas/bin (kept for diagnostics; apps use Tool Router MCP).
+    let path = format!(
+        "{}:{}:/usr/bin:/bin",
+        JarbasPaths::bin_dir().display(),
+        node_bin
+    );
+
     let mut command = Command::new(&node);
     command
         .arg(JarbasPaths::pi_cli())
@@ -316,21 +352,30 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
         .current_dir(&home)
         .env("PI_CODING_AGENT", "true")
         .env("PI_CODING_AGENT_DIR", JarbasPaths::pi_config())
-        .env(
-            "PATH",
-            format!(
-                "{}:/usr/bin:/bin",
-                node.parent()
-                    .map(|path| path.display().to_string())
-                    .unwrap_or_default()
-            ),
-        )
+        .env("PATH", &path)
+        .env("COMPOSIO_CACHE_DIR", JarbasPaths::composio_home())
+        .env("COMPOSIO_INSTALL_DIR", JarbasPaths::composio_cli_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
     for (key, value) in env_keys {
         command.env(key, value);
+    }
+
+    crate::load_env();
+    if let Ok(api_key) = std::env::var("COMPOSIO_API_KEY") {
+        if !api_key.trim().is_empty() {
+            command.env("COMPOSIO_API_KEY", api_key);
+        }
+    }
+    if let Some(user_id) = composio_user_id
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        command.env("COMPOSIO_TEST_USER_ID", user_id);
+        command.env("COMPOSIO_USER_ID", user_id);
     }
 
     let mut child = command
@@ -375,6 +420,7 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
             stdin,
             provider: provider.as_str().into(),
             model: model.clone(),
+            composio_user_id,
         });
     }
 
@@ -430,11 +476,20 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
 
 fn ensure_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
     let (provider, model, _) = llm_settings::load_runtime_llm()?;
+    let desired_composio_user = state
+        .composio_user_id
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .clone();
     let needs_restart = {
         let guard = state.process.lock().unwrap_or_else(|p| p.into_inner());
         match guard.as_ref() {
             None => true,
-            Some(proc) => proc.provider != provider.as_str() || proc.model != model,
+            Some(proc) => {
+                proc.provider != provider.as_str()
+                    || proc.model != model
+                    || proc.composio_user_id != desired_composio_user
+            }
         }
     };
     if needs_restart {
@@ -510,10 +565,22 @@ pub fn ask_send_prompt(
     message: String,
     time_zone: Option<String>,
     local_time: Option<String>,
+    composio_user_id: Option<String>,
 ) -> Result<(), String> {
     let trimmed = message.trim().to_string();
     if trimmed.is_empty() {
         return Err("Message is empty.".into());
+    }
+
+    let state = app.state::<AskChatState>();
+    {
+        let mut guard = state
+            .composio_user_id
+            .lock()
+            .unwrap_or_else(|p| p.into_inner());
+        *guard = composio_user_id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
     }
 
     let prompt = match (
@@ -527,15 +594,14 @@ pub fn ask_send_prompt(
             .filter(|value| !value.is_empty()),
     ) {
         (Some(tz), Some(local)) => format!(
-            "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user.]\n\n{trimmed}"
+            "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
         ),
         (Some(tz), None) => format!(
-            "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user.]\n\n{trimmed}"
+            "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
         ),
         _ => trimmed,
     };
 
-    let state = app.state::<AskChatState>();
     ensure_process(&app, &state)?;
     send_command(
         &state,

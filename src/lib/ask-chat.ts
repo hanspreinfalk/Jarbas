@@ -48,9 +48,17 @@ function userLocalTimeContext(): { timeZone: string; localTime: string } {
   return { timeZone, localTime };
 }
 
-export async function askSendPrompt(message: string): Promise<void> {
+export async function askSendPrompt(
+  message: string,
+  options?: { composioUserId?: string | null },
+): Promise<void> {
   const { timeZone, localTime } = userLocalTimeContext();
-  await invoke("ask_send_prompt", { message, timeZone, localTime });
+  await invoke("ask_send_prompt", {
+    message,
+    timeZone,
+    localTime,
+    composioUserId: options?.composioUserId ?? null,
+  });
 }
 
 export async function askAbort(): Promise<void> {
