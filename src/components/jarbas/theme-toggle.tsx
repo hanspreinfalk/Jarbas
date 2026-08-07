@@ -18,7 +18,13 @@ const OPTIONS = [
 
 type ThemeValue = (typeof OPTIONS)[number]["value"];
 
-export function ThemeToggle() {
+export function ThemeToggle({
+  align = "start",
+  className,
+}: {
+  align?: "start" | "end";
+  className?: string;
+} = {}) {
   const { theme, setTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
 
@@ -37,7 +43,10 @@ export function ThemeToggle() {
           <Button
             variant="outline"
             size="sm"
-            className="rounded-none justify-between gap-2 min-w-36"
+            className={cn(
+              "rounded-none justify-between gap-2 min-w-36",
+              className,
+            )}
           />
         }
       >
@@ -47,7 +56,7 @@ export function ThemeToggle() {
         </span>
         <ChevronsUpDown className="size-3.5 text-muted-foreground" />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="min-w-36 rounded-none">
+      <DropdownMenuContent align={align} className="min-w-36 rounded-none">
         {OPTIONS.map(({ value, label, icon: Icon }) => {
           const selected = active === value;
           return (

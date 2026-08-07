@@ -19,10 +19,13 @@ export async function checkAccessibilityPermission(): Promise<boolean> {
   return status.granted;
 }
 
-export async function getAccessibilityPermissionStatus(): Promise<AccessibilityPermissionStatus> {
+export async function getAccessibilityPermissionStatus(options?: {
+  prompt?: boolean;
+}): Promise<AccessibilityPermissionStatus> {
   try {
     return await invoke<AccessibilityPermissionStatus>(
       "check_accessibility_permission",
+      { prompt: options?.prompt ?? false },
     );
   } catch (error) {
     console.error("Failed to check accessibility permission", error);

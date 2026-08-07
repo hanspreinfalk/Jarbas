@@ -8,10 +8,13 @@ import {
   Monitor,
   Sparkles,
 } from "lucide-react";
+import { GateNav } from "@/components/jarbas/gate-nav";
 import { Button } from "@/components/ui/button";
+import { accessibilitySettingsHint } from "@/lib/platform";
 import {
-  checkAccessibilityPermission,
+  getAccessibilityPermissionStatus,
   openPrivacySettings,
+  type AccessibilityPermissionStatus,
 } from "@/lib/privacy-settings";
 import { screenpipe } from "@/lib/screenpipe";
 import { cn } from "@/lib/utils";
@@ -59,19 +62,22 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
     "screen-recording": false,
     accessibility: false,
   });
+  const [accessibilityInfo, setAccessibilityInfo] =
+    useState<AccessibilityPermissionStatus | null>(null);
 
   const refreshPermissions = useCallback(async () => {
-    const [screenOk, accessibilityOk] = await Promise.all([
+    const [screenOk, accessibilityStatus] = await Promise.all([
       screenpipe
         .permissions({ timeoutMs: 7500 })
         .then((status) => Boolean(status.screen))
         .catch(() => false),
-      checkAccessibilityPermission(),
+      getAccessibilityPermissionStatus(),
     ]);
 
+    setAccessibilityInfo(accessibilityStatus);
     setGranted({
       "screen-recording": screenOk,
-      accessibility: accessibilityOk,
+      accessibility: accessibilityStatus.granted,
     });
   }, []);
 
@@ -106,21 +112,20 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
     onComplete();
   }
 
+  async function requestPermission(permission: (typeof PERMISSIONS)[number]) {
+    if (permission.id === "accessibility") {
+      // Ask macOS for THIS process (dev binary ≠ packaged Jarbas.app).
+      await getAccessibilityPermissionStatus({ prompt: true });
+    }
+    await openPrivacySettings(permission.pane);
+    await refreshPermissions();
+  }
+
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 sm:px-6">
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-7 items-center justify-center bg-primary font-display text-sm font-bold text-primary-foreground">
-            J
-          </span>
-          <span className="font-display text-base tracking-tight text-foreground">
-            Jarbas
-          </span>
-        </div>
-        <p className="label-caps text-muted-foreground">
-          {step === "welcome" ? "03 · Welcome" : "04 · Permissions"}
-        </p>
-      </header>
+      <GateNav
+        stepLabel={step === "welcome" ? "03 · Welcome" : "04 · Permissions"}
+      />
 
       <div className="jarbas-shell flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto flex w-full max-w-2xl flex-1 flex-col justify-center px-4 py-10 sm:px-6 lg:px-8">
@@ -183,6 +188,11 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
               <ul className="mt-8 divide-y divide-border border border-border bg-card">
                 {PERMISSIONS.map((permission) => {
                   const isGranted = granted[permission.id];
+                  const showProcessHint =
+                    permission.id === "accessibility" &&
+                    !isGranted &&
+                    (accessibilityInfo?.processName ||
+                      accessibilityInfo?.executablePath);
                   return (
                     <li
                       key={permission.id}
@@ -222,29 +232,42 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
                           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
                             {permission.description}
                           </p>
+                          {showProcessHint ? (
+                            <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
+                              Enable{" "}
+                              <span className="font-medium text-foreground">
+                                {accessibilityInfo?.processName ?? "jarbas"}
+                              </span>{" "}
+                              {accessibilitySettingsHint()}
+                              {accessibilityInfo?.executablePath ? (
+                                <>
+                                  {" "}
+                                  <span className="break-all font-mono text-[11px]">
+                                    ({accessibilityInfo.executablePath})
+                                  </span>
+                                </>
+                              ) : null}
+                              . Packaged{" "}
+                              <span className="font-medium text-foreground">
+                                Jarbas
+                              </span>{" "}
+                              is a different entry from this development build.
+                            </p>
+                          ) : null}
                         </div>
                       </div>
-                      {isGranted ? (
-                        <div className="flex h-8 shrink-0 items-center gap-1.5 px-1 text-sm font-medium text-foreground">
-                          <Check className="size-4" strokeWidth={2.5} />
-                          Granted
-                        </div>
-                      ) : (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="shrink-0 rounded-none"
-                          onClick={() => {
-                            void openPrivacySettings(permission.pane).then(() => {
-                              void refreshPermissions();
-                            });
-                          }}
-                        >
-                          Open Settings
-                          <ExternalLink className="size-3.5" />
-                        </Button>
-                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        className="shrink-0 rounded-none"
+                        onClick={() => {
+                          void requestPermission(permission);
+                        }}
+                      >
+                        Open Settings
+                        <ExternalLink className="size-3.5" />
+                      </Button>
                     </li>
                   );
                 })}

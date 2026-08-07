@@ -89,7 +89,7 @@ export function AppHeaderActions({
               autoFocus
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search pages…"
+              placeholder="Find a page..."
               className="h-11 rounded-none border-0 px-0 shadow-none focus-visible:ring-0"
               onKeyDown={(event) => {
                 if (event.key === "Enter" && results[0]) {

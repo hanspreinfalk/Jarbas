@@ -30,6 +30,7 @@ import {
   linesToList,
   listToLines,
 } from "@/components/jarbas/analysis-item-editor";
+import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
 import { Button } from "@/components/ui/button";
@@ -43,7 +44,6 @@ import {
   deleteAnalysisItem,
   listAnalysisItems,
   updateAnalysisItem,
-  type AnalysisRunMeta,
   type AnalysisTranscript,
 } from "@/lib/analysis";
 import { formatRangeLabel } from "@/lib/date-range";
@@ -65,17 +65,73 @@ const repeatConfig = {
   totalMinutes: { label: "Minutes / week", color: "#080870" },
 } satisfies ChartConfig;
 
+const REPORT_SECTIONS = [
+  { step: "01", title: "Explanation", id: "report-section-01" },
+  { step: "02", title: "Week snapshot", id: "report-section-02" },
+  { step: "03", title: "Where time went", id: "report-section-03" },
+  { step: "04", title: "Daily cadence", id: "report-section-04" },
+  { step: "05", title: "What they did", id: "report-section-05" },
+  { step: "06", title: "Timeline", id: "report-section-06" },
+  { step: "07", title: "Learnings · how they work", id: "report-section-07" },
+  {
+    step: "08",
+    title: "Opportunities · unlocks from learnings",
+    id: "report-section-08",
+  },
+  { step: "09", title: "Repetitive work", id: "report-section-09" },
+  { step: "10", title: "Bottlenecks", id: "report-section-10" },
+  { step: "11", title: "How they can improve", id: "report-section-11" },
+  { step: "12", title: "Next steps", id: "report-section-12" },
+] as const;
+
+function scrollToReportSection(id: string) {
+  const target = document.getElementById(id);
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function ReportIndex() {
+  return (
+    <nav
+      aria-label="Report index"
+      className="mt-8 border border-border bg-card px-4 py-4 sm:px-5"
+    >
+      <p className="label-caps text-muted-foreground">Index</p>
+      <ol className="mt-3 columns-1 gap-x-8 sm:columns-2">
+        {REPORT_SECTIONS.map((item) => (
+          <li key={item.id} className="break-inside-avoid">
+            <button
+              type="button"
+              onClick={() => scrollToReportSection(item.id)}
+              className="group flex w-full items-baseline gap-2 py-1.5 text-left text-sm transition-colors hover:text-foreground"
+            >
+              <span className="label-caps shrink-0 text-[10px] text-muted-foreground group-hover:text-foreground/70">
+                {item.step}
+              </span>
+              <span className="min-w-0 text-muted-foreground underline-offset-2 group-hover:text-foreground group-hover:underline">
+                {item.title}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ol>
+    </nav>
+  );
+}
+
 function Section({
   step,
   title,
+  id,
   children,
 }: {
   step: string;
   title: string;
+  id: string;
   children: ReactNode;
 }) {
   return (
-    <section className="mt-8 border-t border-border pt-8 sm:mt-10 sm:pt-10">
+    <section id={id} className="mt-8 scroll-mt-6 border-t border-border pt-8 sm:mt-10 sm:scroll-mt-8 sm:pt-10">
       <div className="mb-4 flex items-baseline gap-3 sm:mb-5">
         <span className="label-caps shrink-0 text-muted-foreground">{step}</span>
         <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
@@ -137,7 +193,7 @@ function ReportDetail({
     improvements: listToLines(report.improvements),
   });
   const analysis = report.analysis as AnalysisTranscript | undefined;
-  const promptLabel = `Capture a work report for ${formatRangeLabel(
+  const promptLabel = `Generate a full report for ${formatRangeLabel(
     report.startDate ?? "",
     report.endDate ?? "",
   )}.`;
@@ -312,7 +368,7 @@ function ReportDetail({
           />
         </div>
       ) : (
-      <div ref={reportRef} className="bg-background pt-6">
+      <div ref={reportRef} className="pt-6">
       {/* Header */}
       <header className="pb-2">
         {editing ? (
@@ -379,8 +435,10 @@ function ReportDetail({
         )}
       </header>
 
+      <ReportIndex />
+
       {/* 01 Summary */}
-      <Section step="01" title="Summary">
+      <Section step="01" title="Explanation" id="report-section-01">
         {editing ? (
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -464,7 +522,7 @@ function ReportDetail({
       </Section>
 
       {/* 02 Snapshot */}
-      <Section step="02" title="Week snapshot">
+      <Section step="02" title="Week snapshot" id="report-section-02">
         <div className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-4">
           {report.kpis.map((kpi) => (
             <div key={kpi.label} className="bg-card px-3 py-3 sm:px-4">
@@ -498,7 +556,7 @@ function ReportDetail({
       </Section>
 
       {/* 03 Time */}
-      <Section step="03" title="Where time went">
+      <Section step="03" title="Where time went" id="report-section-03">
         <div className="grid gap-6 md:grid-cols-2 md:items-start">
           <ChartContainer
             config={{ value: { label: "Hours", color: "#080870" } }}
@@ -545,7 +603,7 @@ function ReportDetail({
       </Section>
 
       {/* 04 Cadence */}
-      <Section step="04" title="Daily cadence">
+      <Section step="04" title="Daily cadence" id="report-section-04">
         <ChartContainer
           config={mixConfig}
           className="aspect-[4/3] w-full sm:aspect-[16/9]"
@@ -605,7 +663,7 @@ function ReportDetail({
       </Section>
 
       {/* 05 What they did + timeline */}
-      <Section step="05" title="What they did">
+      <Section step="05" title="What they did" id="report-section-05">
         <ul className="space-y-2.5">
           {report.whatTheyDid.map((item) => (
             <li key={item} className="flex gap-2 text-sm leading-relaxed">
@@ -614,8 +672,10 @@ function ReportDetail({
             </li>
           ))}
         </ul>
+      </Section>
 
-        <p className="mt-6 mb-3 text-sm font-medium text-foreground">Timeline</p>
+      {/* 06 Timeline */}
+      <Section step="06" title="Timeline" id="report-section-06">
         <ol className="space-y-3 border-l border-border pl-4">
           {report.timeline.map((item) => (
             <li key={`${item.time}-${item.activity}`}>
@@ -628,8 +688,115 @@ function ReportDetail({
         </ol>
       </Section>
 
-      {/* 06 Repetition */}
-      <Section step="06" title="Repetitive work">
+      {/* 07 Learnings */}
+      <Section step="07" title="Learnings · how they work" id="report-section-07">
+        {report.learnings.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No learnings captured for this period yet.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {report.learnings.map((item, i) => (
+              <li
+                key={`${item.title}-${i}`}
+                className="border border-border px-3 py-3 sm:px-4"
+              >
+                <p className="text-sm font-semibold text-foreground">
+                  <span className="text-muted-foreground">
+                    {String(i + 1).padStart(2, "0")}.{" "}
+                  </span>
+                  {item.title}
+                </p>
+                {item.observed ? (
+                  <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                    <span className="font-medium">Observed · </span>
+                    {item.observed}
+                  </p>
+                ) : null}
+                {item.insight ? (
+                  <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                    <span className="font-medium text-foreground">Insight · </span>
+                    {item.insight}
+                  </p>
+                ) : null}
+                {item.apps && item.apps.length > 0 ? (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Apps · {item.apps.join(", ")}
+                  </p>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* 08 Opportunities */}
+      <Section
+        step="08"
+        title="Opportunities · unlocks from learnings"
+        id="report-section-08"
+      >
+        {report.opportunities.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            No opportunities derived for this period yet.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {[...report.opportunities]
+              .sort(
+                (a, b) =>
+                  b.impact / Math.max(b.effort, 1) -
+                  a.impact / Math.max(a.effort, 1),
+              )
+              .map((item, i) => (
+                <li
+                  key={`${item.name}-${i}`}
+                  className="border border-border px-3 py-3 sm:px-4"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <p className="text-sm font-semibold text-foreground">
+                      <span className="text-muted-foreground">
+                        {String(i + 1).padStart(2, "0")}.{" "}
+                      </span>
+                      {item.name}
+                    </p>
+                    <span className="label-caps border border-border bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+                      {item.horizon}
+                    </span>
+                  </div>
+                  {item.unlock ? (
+                    <p className="mt-2 text-sm leading-relaxed text-foreground/90">
+                      <span className="font-medium">Unlock · </span>
+                      {item.unlock}
+                    </p>
+                  ) : null}
+                  {item.fromLearning ? (
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        From learning ·{" "}
+                      </span>
+                      {item.fromLearning}
+                    </p>
+                  ) : null}
+                  {item.automationIdea ? (
+                    <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                      <span className="font-medium text-foreground">
+                        Automation idea ·{" "}
+                      </span>
+                      {item.automationIdea}
+                    </p>
+                  ) : null}
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Impact {item.impact} · Effort {item.effort}
+                  </p>
+                </li>
+              ))}
+          </ul>
+        )}
+      </Section>
+
+      {/* 09 Repetition */}
+      <Section step="09" title="Repetitive work" id="report-section-09">
         <ChartContainer
           config={repeatConfig}
           className="aspect-[4/3] w-full sm:aspect-[16/9]"
@@ -699,8 +866,8 @@ function ReportDetail({
         </ul>
       </Section>
 
-      {/* 07 Bottlenecks */}
-      <Section step="07" title="Bottlenecks">
+      {/* 10 Bottlenecks */}
+      <Section step="10" title="Bottlenecks" id="report-section-10">
         <ul className="space-y-3">
           {report.bottlenecks.map((item, i) => (
             <li key={item.title} className="border border-border px-3 py-3 sm:px-4">
@@ -720,41 +887,8 @@ function ReportDetail({
         </ul>
       </Section>
 
-      {/* 08 Opportunities */}
-      <Section step="08" title="Opportunities">
-        <ul className="space-y-3">
-          {[...report.opportunities]
-            .sort(
-              (a, b) =>
-                b.impact / Math.max(b.effort, 1) -
-                a.impact / Math.max(a.effort, 1),
-            )
-            .map((item, i) => (
-              <li
-                key={item.name}
-                className="grid grid-cols-1 gap-2 border border-border px-3 py-3 sm:grid-cols-[1fr_auto] sm:items-center sm:gap-4"
-              >
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    <span className="text-muted-foreground">
-                      {String(i + 1).padStart(2, "0")}.{" "}
-                    </span>
-                    {item.name}
-                  </p>
-                  <p className="mt-1 text-xs text-muted-foreground">
-                    Impact {item.impact} · Effort {item.effort}
-                  </p>
-                </div>
-                <span className="label-caps w-fit border border-border bg-muted px-2 py-1 text-[10px] text-muted-foreground">
-                  {item.horizon}
-                </span>
-              </li>
-            ))}
-        </ul>
-      </Section>
-
-      {/* 09 Scorecard + improve */}
-      <Section step="09" title="How they can improve">
+      {/* 11 Scorecard + improve */}
+      <Section step="11" title="How they can improve" id="report-section-11">
         <ul className="mb-6 space-y-4">
           {report.scorecard.map((item) => (
             <li key={item.label}>
@@ -781,8 +915,8 @@ function ReportDetail({
         </ul>
       </Section>
 
-      {/* 10 Next steps */}
-      <Section step="10" title="Next steps">
+      {/* 12 Next steps */}
+      <Section step="12" title="Next steps" id="report-section-12">
         <div className="overflow-x-auto border border-border">
           <table className="w-full min-w-[20rem] text-left text-sm">
             <thead>
@@ -824,7 +958,7 @@ function ReportDetail({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="Delete report?"
-        description="This removes it from ~/.jarbas/reports. You cannot undo this."
+        description="This permanently deletes the report. You cannot undo this."
         deleting={deleting}
         onConfirm={() => void handleDelete()}
       />
@@ -837,8 +971,8 @@ export function ReportsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [run, setRun] = useState<AnalysisRunMeta | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { meta, startRun, clearRun } = useAnalysisRun();
 
   const refresh = useCallback(async (preferId?: string) => {
     setLoading(true);
@@ -863,15 +997,13 @@ export function ReportsPage() {
     void refresh();
   }, [refresh]);
 
-  if (run) {
+  if (meta?.kind === "reports") {
     return (
       <AnalysisRunView
-        meta={run}
-        onCancel={() => setRun(null)}
-        onErrorBack={() => setRun(null)}
+        onErrorBack={() => clearRun()}
         onCompleted={(ids) => {
           void refresh(ids[0]).then(() => {
-            setRun(null);
+            clearRun();
           });
         }}
       />
@@ -914,11 +1046,12 @@ export function ReportsPage() {
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            Generate report
+            Generate full report
           </Button>
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-          Cycle summaries of how work happened.
+          The full package for a period: timeline, explanation, learnings, and
+          opportunities.
         </p>
       </div>
 
@@ -939,8 +1072,8 @@ export function ReportsPage() {
             No reports yet
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Pick a timeframe and let Pi write a work report from your captured
-            activity.
+            Choose a date range to build a complete report - what happened, how
+            you work, and what to unlock next.
           </p>
           <Button
             type="button"
@@ -948,7 +1081,7 @@ export function ReportsPage() {
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            Generate report
+            Generate full report
           </Button>
         </div>
       ) : (
@@ -986,10 +1119,10 @@ export function ReportsPage() {
         open={open}
         onOpenChange={setOpen}
         kind="reports"
-        title="Generate report"
-        description="Pick a timeframe and model. Pi analyzes your capture and connected apps, then saves the report."
-        confirmLabel="Generate report"
-        onStarted={setRun}
+        title="Generate full report"
+        description="Choose dates to review. Jarbas builds the full picture: timeline, explanation, how you work, and opportunities to unlock next."
+        confirmLabel="Generate full report"
+        onStarted={startRun}
       />
     </div>
   );

@@ -540,7 +540,7 @@ export function ConnectorsPage() {
         <Input
           value={query}
           onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search tools…"
+              placeholder="Search apps..."
           className="h-10 rounded-none border-border bg-card pl-9"
         />
       </div>
@@ -631,7 +631,7 @@ export function ConnectorsPage() {
 
           <div className="mt-6 flex flex-col items-center justify-between gap-3 border border-border bg-card px-3 py-3 sm:flex-row">
             <p className="text-xs text-muted-foreground tabular-nums">
-              Showing {(page - 1) * PAGE_SIZE + (items.length ? 1 : 0)}–
+              Showing {(page - 1) * PAGE_SIZE + (items.length ? 1 : 0)}-
               {(page - 1) * PAGE_SIZE + items.length} of{" "}
               {totalItems.toLocaleString()}
             </p>

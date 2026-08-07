@@ -53,7 +53,7 @@ struct AccessibilityPermissionStatus {
 }
 
 #[tauri::command]
-fn check_accessibility_permission() -> AccessibilityPermissionStatus {
+fn check_accessibility_permission(prompt: Option<bool>) -> AccessibilityPermissionStatus {
     let executable_path = std::env::current_exe()
         .ok()
         .map(|path| path.display().to_string());
@@ -70,14 +70,53 @@ fn check_accessibility_permission() -> AccessibilityPermissionStatus {
         // macOS `Boolean` is a C unsigned char, not a Rust `bool`.
         #[link(name = "ApplicationServices", kind = "framework")]
         extern "C" {
+            static kAXTrustedCheckOptionPrompt: *const std::ffi::c_void;
             fn AXIsProcessTrusted() -> u8;
             fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> u8;
         }
 
+        #[link(name = "CoreFoundation", kind = "framework")]
+        extern "C" {
+            fn CFDictionaryCreate(
+                allocator: *const std::ffi::c_void,
+                keys: *const *const std::ffi::c_void,
+                values: *const *const std::ffi::c_void,
+                num_values: isize,
+                key_call_backs: *const std::ffi::c_void,
+                value_call_backs: *const std::ffi::c_void,
+            ) -> *const std::ffi::c_void;
+            fn CFRelease(cf: *const std::ffi::c_void);
+            static kCFBooleanTrue: *const std::ffi::c_void;
+            static kCFTypeDictionaryKeyCallBacks: std::ffi::c_void;
+            static kCFTypeDictionaryValueCallBacks: std::ffi::c_void;
+        }
+
+        let should_prompt = prompt.unwrap_or(false);
         let granted = unsafe {
-            let with_options = AXIsProcessTrustedWithOptions(std::ptr::null());
-            let basic = AXIsProcessTrusted();
-            with_options != 0 || basic != 0
+            if should_prompt {
+                let key = kAXTrustedCheckOptionPrompt;
+                let value = kCFBooleanTrue;
+                let options = CFDictionaryCreate(
+                    std::ptr::null(),
+                    &key,
+                    &value,
+                    1,
+                    &kCFTypeDictionaryKeyCallBacks,
+                    &kCFTypeDictionaryValueCallBacks,
+                );
+                let trusted = if options.is_null() {
+                    AXIsProcessTrusted()
+                } else {
+                    let result = AXIsProcessTrustedWithOptions(options);
+                    CFRelease(options);
+                    result
+                };
+                trusted != 0
+            } else {
+                let with_options = AXIsProcessTrustedWithOptions(std::ptr::null());
+                let basic = AXIsProcessTrusted();
+                with_options != 0 || basic != 0
+            }
         };
 
         return AccessibilityPermissionStatus {
@@ -89,6 +128,7 @@ fn check_accessibility_permission() -> AccessibilityPermissionStatus {
 
     #[cfg(not(target_os = "macos"))]
     {
+        let _ = prompt;
         AccessibilityPermissionStatus {
             granted: false,
             executable_path,

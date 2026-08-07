@@ -12,6 +12,7 @@ import {
   listToLines,
 } from "@/components/jarbas/analysis-item-editor";
 import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
+import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
@@ -21,7 +22,6 @@ import {
   deleteAnalysisItem,
   listAnalysisItems,
   updateAnalysisItem,
-  type AnalysisRunMeta,
   type AnalysisTranscript,
 } from "@/lib/analysis";
 import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
@@ -93,7 +93,7 @@ function OpportunityDetail({
   }, [opportunity]);
 
   const analysis = opportunity.analysis as AnalysisTranscript | undefined;
-  const promptLabel = `Capture opportunities for ${formatRangeLabel(
+  const promptLabel = `Find opportunities for ${formatRangeLabel(
     opportunity.startDate ?? "",
     opportunity.endDate ?? "",
   )}.`;
@@ -285,7 +285,7 @@ function OpportunityDetail({
       ) : (
         <>
           <section className="mt-8 space-y-3">
-            <h2 className="label-caps text-muted-foreground">Signal</h2>
+            <h2 className="label-caps text-muted-foreground">From learning</h2>
             {editing ? (
               <TextArea value={draft.signal} onChange={(v) => patchDraft("signal", v)} rows={4} />
             ) : (
@@ -424,7 +424,7 @@ function OpportunityDetail({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="Delete opportunity?"
-        description="This removes it from ~/.jarbas/opportunities. You cannot undo this."
+        description="This permanently deletes the opportunity. You cannot undo this."
         deleting={deleting}
         onConfirm={() => void handleDelete()}
       />
@@ -437,8 +437,8 @@ export function OpportunitiesPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [run, setRun] = useState<AnalysisRunMeta | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { meta, startRun, clearRun } = useAnalysisRun();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -460,15 +460,13 @@ export function OpportunitiesPage() {
     void refresh();
   }, [refresh]);
 
-  if (run) {
+  if (meta?.kind === "opportunities") {
     return (
       <AnalysisRunView
-        meta={run}
-        onCancel={() => setRun(null)}
-        onErrorBack={() => setRun(null)}
+        onErrorBack={() => clearRun()}
         onCompleted={(ids) => {
           void refresh().then(() => {
-            setRun(null);
+            clearRun();
             if (ids[0]) setSelectedId(ids[0]);
           });
         }}
@@ -510,11 +508,12 @@ export function OpportunitiesPage() {
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            Capture opportunities
+            Find opportunities
           </Button>
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-          Fast delivery unlocks ready to review.
+          Improvement unlocks derived from your learnings - automations and
+          shortcuts ready to ship.
         </p>
       </div>
 
@@ -535,8 +534,8 @@ export function OpportunitiesPage() {
             No opportunities yet
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Pick a timeframe and let Pi surface unlocks from how you actually
-            work.
+            From how you actually work, Jarbas suggests unlocks, automation
+            ideas, and plans you can ship in weeks.
           </p>
           <Button
             type="button"
@@ -544,7 +543,7 @@ export function OpportunitiesPage() {
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            Capture opportunities
+            Find opportunities
           </Button>
         </div>
       ) : (
@@ -603,10 +602,10 @@ export function OpportunitiesPage() {
         open={open}
         onOpenChange={setOpen}
         kind="opportunities"
-        title="Capture opportunities"
-        description="Pick a timeframe and model. Pi analyzes your capture and connected apps, then saves opportunities."
-        confirmLabel="Capture opportunities"
-        onStarted={setRun}
+        title="Find opportunities"
+        description="Choose dates to review. Jarbas turns how you work into unlocks, automation ideas, and clear next steps."
+        confirmLabel="Find opportunities"
+        onStarted={startRun}
       />
     </div>
   );

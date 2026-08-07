@@ -12,6 +12,7 @@ import {
   listToLines,
 } from "@/components/jarbas/analysis-item-editor";
 import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
+import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
@@ -21,7 +22,6 @@ import {
   deleteAnalysisItem,
   listAnalysisItems,
   updateAnalysisItem,
-  type AnalysisRunMeta,
   type AnalysisTranscript,
 } from "@/lib/analysis";
 import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
@@ -118,7 +118,7 @@ function LearningDetail({
   }, [learning]);
 
   const analysis = learning.analysis as AnalysisTranscript | undefined;
-  const promptLabel = `Capture learnings for ${formatRangeLabel(
+  const promptLabel = `Find patterns for ${formatRangeLabel(
     learning.startDate ?? "",
     learning.endDate ?? "",
   )}.`;
@@ -422,7 +422,7 @@ function LearningDetail({
         open={confirmDelete}
         onOpenChange={setConfirmDelete}
         title="Delete learning?"
-        description="This removes it from ~/.jarbas/learnings. You cannot undo this."
+        description="This permanently deletes the learning. You cannot undo this."
         deleting={deleting}
         onConfirm={() => void handleDelete()}
       />
@@ -435,8 +435,8 @@ export function LearningsPage() {
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
-  const [run, setRun] = useState<AnalysisRunMeta | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const { meta, startRun, clearRun } = useAnalysisRun();
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -458,15 +458,13 @@ export function LearningsPage() {
     void refresh();
   }, [refresh]);
 
-  if (run) {
+  if (meta?.kind === "learnings") {
     return (
       <AnalysisRunView
-        meta={run}
-        onCancel={() => setRun(null)}
-        onErrorBack={() => setRun(null)}
+        onErrorBack={() => clearRun()}
         onCompleted={(ids) => {
           void refresh().then(() => {
-            setRun(null);
+            clearRun();
             if (ids[0]) setSelectedId(ids[0]);
           });
         }}
@@ -508,11 +506,11 @@ export function LearningsPage() {
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            Capture learnings
+            Find patterns
           </Button>
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-          How you work - apps, rituals, and repeatable flows.
+          Observations about how you work, think, and get things done.
         </p>
       </div>
 
@@ -533,8 +531,8 @@ export function LearningsPage() {
             No learnings yet
           </p>
           <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-muted-foreground">
-            Pick a timeframe and let Pi analyze your captured screen activity
-            for patterns in how you work.
+            Choose a date range to find patterns in how you work - your rituals,
+            sequences, and how you think through tasks.
           </p>
           <Button
             type="button"
@@ -542,7 +540,7 @@ export function LearningsPage() {
             onClick={() => setOpen(true)}
           >
             <Sparkles className="size-3.5" />
-            Capture learnings
+            Find patterns
           </Button>
         </div>
       ) : (
@@ -590,10 +588,10 @@ export function LearningsPage() {
         open={open}
         onOpenChange={setOpen}
         kind="learnings"
-        title="Capture learnings"
-        description="Pick a timeframe and model. Pi analyzes your capture and connected apps, then saves learnings."
-        confirmLabel="Capture learnings"
-        onStarted={setRun}
+        title="Find patterns"
+        description="Choose dates to review. Jarbas studies how you work and think from your screen activity and connected apps."
+        confirmLabel="Find patterns"
+        onStarted={startRun}
       />
     </div>
   );

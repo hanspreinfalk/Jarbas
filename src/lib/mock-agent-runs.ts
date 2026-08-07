@@ -105,21 +105,21 @@ export const MOCK_AGENT_RUNS: AgentRun[] = [
         label: "Flag exceptions",
         detail: "Premium and rate mismatches pending.",
         status: "pending",
-        at: "—",
+        at: " - ",
       },
       {
         id: "s5",
         label: "Draft report",
         detail: "Write reconciliation_report.md with executive brief.",
         status: "pending",
-        at: "—",
+        at: " - ",
       },
       {
         id: "s6",
         label: "Route for review",
         detail: "Notify Finance Lead when the pack is ready.",
         status: "pending",
-        at: "—",
+        at: " - ",
       },
     ],
     events: [
@@ -622,7 +622,7 @@ export const MOCK_AGENT_RUNS: AgentRun[] = [
         label: "Stage workbooks",
         detail: "Skipped · listing never completed.",
         status: "pending",
-        at: "—",
+        at: " - ",
       },
     ],
     events: [

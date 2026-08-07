@@ -1,7 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown } from "lucide-react";
+import { Check, ChevronDown, Loader2 } from "lucide-react";
 import Markdown from "react-markdown";
 import type { AnalysisToolCall, AnalysisTranscript } from "@/lib/analysis";
+import {
+  buildFriendlyProgress,
+  type FriendlyPhase,
+} from "@/lib/friendly-analysis";
 import { cn } from "@/lib/utils";
 
 function truncateMiddle(value: string, max = 64) {
@@ -172,6 +176,42 @@ function ToolRow({ tool }: { tool: AnalysisToolCall }) {
   );
 }
 
+function PhaseRow({ phase }: { phase: FriendlyPhase }) {
+  return (
+    <div className="flex items-center gap-2.5 py-1.5">
+      <span
+        className={cn(
+          "flex size-5 shrink-0 items-center justify-center border",
+          phase.done && "border-foreground bg-foreground text-background",
+          phase.active &&
+            !phase.done &&
+            "border-foreground/40 bg-muted text-foreground",
+          !phase.done &&
+            !phase.active &&
+            "border-border bg-background text-muted-foreground/40",
+        )}
+        aria-hidden
+      >
+        {phase.done ? (
+          <Check className="size-3 stroke-[2.5]" />
+        ) : phase.active ? (
+          <Loader2 className="size-3 animate-spin" />
+        ) : null}
+      </span>
+      <span
+        className={cn(
+          "text-sm leading-snug",
+          phase.active && "animate-thinking font-medium text-foreground",
+          phase.done && "text-muted-foreground",
+          !phase.done && !phase.active && "text-muted-foreground/50",
+        )}
+      >
+        {phase.label}
+      </span>
+    </div>
+  );
+}
+
 function AssistantMarkdown({ content }: { content: string }) {
   return (
     <div className="text-sm leading-relaxed text-foreground">
@@ -232,15 +272,18 @@ export function AnalysisChatPanel({
   status,
   error,
   promptLabel,
+  stopping = false,
 }: {
   transcript: AnalysisTranscript;
   live?: boolean;
   status?: string | null;
   error?: string | null;
   promptLabel: string;
+  stopping?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
     if (!live) return;
@@ -267,28 +310,16 @@ export function AnalysisChatPanel({
     Boolean(transcript.thinking?.trim()) ||
     Boolean(transcript.content?.trim()) ||
     tools.length > 0;
-  const runningTools = tools.filter((tool) => tool.status === "running");
-  const visibleTools = live
-    ? [
-        ...tools.filter((tool) => tool.status === "running"),
-        ...tools.filter((tool) => tool.status !== "running").slice(-6),
-      ].filter(
-        (tool, index, list) => list.findIndex((item) => item.id === tool.id) === index,
-      )
-    : tools;
-  const hiddenToolCount = Math.max(0, tools.length - visibleTools.length);
-  // Only show start/stop status — never "Using …" and never while tools already show activity.
-  const showStatus =
-    live &&
-    Boolean(status) &&
-    !/^using\b/i.test(status ?? "") &&
-    runningTools.length === 0 &&
-    (tools.length === 0 || /stopp|start|analyz/i.test(status ?? ""));
-  const showThinkingPlaceholder =
-    live &&
-    !transcript.content?.trim() &&
-    runningTools.length === 0 &&
-    !transcript.thinking?.trim();
+
+  const { headline, phases } = buildFriendlyProgress({
+    tools,
+    status: status ?? null,
+    live,
+    stopping,
+  });
+
+  const completedCount = phases.filter((phase) => phase.done).length;
+  const totalSteps = phases.length;
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6">
@@ -296,13 +327,13 @@ export function AnalysisChatPanel({
         <div className="border border-border bg-muted/30 px-4 py-3">
           <p className="label-caps text-muted-foreground">Analysis run</p>
           <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-            Replay of tools, thinking, and output from when this was generated.
+            Replay of what happened when this was generated.
           </p>
         </div>
       ) : null}
 
       <div className="border border-border bg-card px-4 py-3">
-        <p className="label-caps text-muted-foreground">Prompt</p>
+        <p className="label-caps text-muted-foreground">Looking at</p>
         <p className="mt-2 text-sm leading-relaxed text-foreground">
           {promptLabel}
         </p>
@@ -310,36 +341,44 @@ export function AnalysisChatPanel({
 
       <div className="min-w-0">
         <div className="flex items-center justify-between gap-3">
-          <p className="label-caps text-muted-foreground">Pi</p>
+          <p className="label-caps text-muted-foreground">Progress</p>
           <p className="text-[13px] text-muted-foreground tabular-nums">
-            {live ? "Running" : "Worked for"} {durationLabel}
-            {tools.length > 0 ? (
+            {live ? "Running" : "Took"} {durationLabel}
+            {live ? (
               <span className="text-muted-foreground/70">
                 {" "}
-                · {tools.length} {tools.length === 1 ? "tool" : "tools"}
+                · {completedCount}/{totalSteps}
               </span>
             ) : null}
           </p>
         </div>
 
-        {tools.length > 0 ? (
-          <div className="mt-3 flex flex-col gap-0.5">
-            {hiddenToolCount > 0 ? (
-              <p className="py-0.5 text-[13px] text-muted-foreground/70">
-                {hiddenToolCount} earlier{" "}
-                {hiddenToolCount === 1 ? "tool" : "tools"}
-              </p>
-            ) : null}
-            {visibleTools.map((tool) => (
-              <ToolRow key={tool.id} tool={tool} />
+        <div className="mt-4 border border-border bg-card px-4 py-3">
+          <p className="text-sm font-medium text-foreground">{headline}</p>
+          <div className="mt-3 flex flex-col">
+            {phases.map((phase) => (
+              <PhaseRow key={phase.id} phase={phase} />
             ))}
           </div>
-        ) : null}
+        </div>
 
-        {showThinkingPlaceholder ? (
-          <p className="mt-4 animate-thinking text-sm text-muted-foreground">
-            Thinking…
-          </p>
+        {tools.length > 0 ? (
+          <details
+            className="mt-4 group"
+            open={showDetails}
+            onToggle={(event) =>
+              setShowDetails((event.target as HTMLDetailsElement).open)
+            }
+          >
+            <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">
+              Technical details
+            </summary>
+            <div className="mt-3 flex flex-col gap-0.5">
+              {tools.map((tool) => (
+                <ToolRow key={tool.id} tool={tool} />
+              ))}
+            </div>
+          </details>
         ) : null}
 
         {!live && transcript.thinking?.trim() ? (
@@ -357,12 +396,6 @@ export function AnalysisChatPanel({
           <div className="mt-4">
             <AssistantMarkdown content={transcript.content} />
           </div>
-        ) : null}
-
-        {showStatus ? (
-          <p className="mt-4 animate-thinking text-sm text-muted-foreground">
-            {status}
-          </p>
         ) : null}
 
         {error ? (

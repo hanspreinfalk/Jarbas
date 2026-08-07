@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 
 export type DetailViewTab = "details" | "ai";
 
-/** Toggle between the saved result and the analysis transcript — lives in the top toolbar. */
+/** Toggle between the saved result and the analysis transcript - lives in the top toolbar. */
 export function AnalysisRunButton({
   tab,
   onTabChange,

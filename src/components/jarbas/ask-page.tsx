@@ -116,7 +116,7 @@ function AssistantMarkdown({ content }: { content: string }) {
 function askAssistantHint(status: PiAgentStatus): string {
   switch (status.kind) {
     case "installing":
-      return "Setting up assistant…";
+      return "Setting up Ask…";
     case "failed":
       return "Assistant needs setup in Settings.";
     case "idle":
@@ -570,7 +570,7 @@ function Composer({
   onSubmit,
   onStop,
   onModelSelect,
-  placeholder = "Ask Jarbas…",
+  placeholder = "Ask anything about your work...",
 }: {
   draft: string;
   sending: boolean;
@@ -812,7 +812,7 @@ export function AskPage() {
             error: event.message,
             content:
               message.content ||
-              "Something went wrong while talking to the assistant.",
+              "Something went wrong. Try again in a moment.",
             createdAt: finishedAt,
             finishedAt,
           };
@@ -908,7 +908,7 @@ export function AskPage() {
     if (!trimmed || sending) return;
 
     if (llmSettings && !llmSettings.keys.some((item) => item.configured)) {
-      setStreamError("Add an API key in Settings first.");
+      setStreamError("Add a key in Settings first.");
       return;
     }
 
@@ -949,7 +949,7 @@ export function AskPage() {
         error: message,
         content:
           current.content ||
-          "Could not reach the assistant. Check Settings and try again.",
+          "Could not reach Ask. Check Settings and try again.",
       }));
       finishAssistant();
     }
@@ -1030,7 +1030,7 @@ export function AskPage() {
     (piStatus && piStatus.kind !== "ready"
       ? askAssistantHint(piStatus)
       : llmSettings && !llmSettings.keys.some((item) => item.configured)
-        ? "Add an API key in Settings to use Ask."
+        ? "Add a key in Settings to use Ask."
         : "Your data stays private and local on this device.");
 
   if (!hasStarted) {
@@ -1068,7 +1068,7 @@ export function AskPage() {
               onModelSelect={(provider, model) =>
                 void onModelSelect(provider, model)
               }
-              placeholder="Ask about your work…"
+              placeholder="What did I spend time on today?"
             />
           </div>
 

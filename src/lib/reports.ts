@@ -1,3 +1,20 @@
+export type WorkReportLearning = {
+  title: string;
+  observed: string;
+  insight: string;
+  apps?: string[];
+};
+
+export type WorkReportOpportunity = {
+  name: string;
+  unlock: string;
+  fromLearning: string;
+  impact: number;
+  effort: number;
+  horizon: string;
+  automationIdea?: string;
+};
+
 export type WorkReport = {
   id: string;
   title: string;
@@ -45,6 +62,7 @@ export type WorkReport = {
     activity: string;
     type: "deep" | "collab" | "admin";
   }[];
+  learnings: WorkReportLearning[];
   repetitiveWork: {
     activity: string;
     occurrences: number;
@@ -56,12 +74,7 @@ export type WorkReport = {
     cost: string;
     unlock: string;
   }[];
-  opportunities: {
-    name: string;
-    impact: number;
-    effort: number;
-    horizon: string;
-  }[];
+  opportunities: WorkReportOpportunity[];
   improvements: string[];
   nextSteps: {
     action: string;
@@ -84,10 +97,31 @@ export type WorkReport = {
 
 /** Normalize partial AI output so report charts do not crash. */
 export function normalizeWorkReport(raw: WorkReport): WorkReport {
+  const opportunities = Array.isArray(raw.opportunities)
+    ? raw.opportunities.map((item) => ({
+        name: item.name || "",
+        unlock: item.unlock || "",
+        fromLearning: item.fromLearning || "",
+        impact: typeof item.impact === "number" ? item.impact : 0,
+        effort: typeof item.effort === "number" ? item.effort : 1,
+        horizon: item.horizon || "",
+        automationIdea: item.automationIdea || "",
+      }))
+    : [];
+
+  const learnings = Array.isArray(raw.learnings)
+    ? raw.learnings.map((item) => ({
+        title: item.title || "",
+        observed: item.observed || "",
+        insight: item.insight || "",
+        apps: Array.isArray(item.apps) ? item.apps : [],
+      }))
+    : [];
+
   return {
     ...raw,
     title: raw.title || "Work report",
-    subtitle: raw.subtitle || "Generated from captured activity",
+    subtitle: raw.subtitle || "Full package from captured activity",
     period: raw.period || "",
     person: raw.person || "You",
     role: raw.role || "",
@@ -107,9 +141,10 @@ export function normalizeWorkReport(raw: WorkReport): WorkReport {
     focusTakeaway: raw.focusTakeaway || "",
     whatTheyDid: Array.isArray(raw.whatTheyDid) ? raw.whatTheyDid : [],
     timeline: Array.isArray(raw.timeline) ? raw.timeline : [],
+    learnings,
     repetitiveWork: Array.isArray(raw.repetitiveWork) ? raw.repetitiveWork : [],
     bottlenecks: Array.isArray(raw.bottlenecks) ? raw.bottlenecks : [],
-    opportunities: Array.isArray(raw.opportunities) ? raw.opportunities : [],
+    opportunities,
     improvements: Array.isArray(raw.improvements) ? raw.improvements : [],
     nextSteps: Array.isArray(raw.nextSteps) ? raw.nextSteps : [],
     scorecard: Array.isArray(raw.scorecard) ? raw.scorecard : [],

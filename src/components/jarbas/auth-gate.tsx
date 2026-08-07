@@ -5,11 +5,13 @@ import type {
   SignInFirstFactor,
   SignUpResource,
 } from "@clerk/shared/types";
+import { GateNav } from "@/components/jarbas/gate-nav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   clerkErrorMessage,
   getAuthRedirectUrl,
+  isAlreadySignedInError,
   isAlreadyVerifiedError,
   isIdentifierNotFoundError,
 } from "@/lib/auth-origin";
@@ -20,6 +22,14 @@ type AuthStep = "identifier" | "code";
 
 function isEmailCodeFactor(factor: SignInFirstFactor): factor is EmailCodeFactor {
   return factor.strategy === "email_code";
+}
+
+/** Split a full name into Clerk firstName / lastName. */
+function splitFullName(fullName: string): { firstName: string; lastName: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { firstName: "", lastName: "" };
+  if (parts.length === 1) return { firstName: parts[0]!, lastName: "" };
+  return { firstName: parts[0]!, lastName: parts.slice(1).join(" ") };
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
@@ -71,6 +81,7 @@ export function AuthGate() {
   const [mode, setMode] = useState<AuthMode>("sign-in");
   const [step, setStep] = useState<AuthStep>("identifier");
   const [email, setEmail] = useState("");
+  const [fullName, setFullName] = useState("");
   const [code, setCode] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +108,7 @@ export function AuthGate() {
       throw new Error("Verification succeeded but no session was created. Start over.");
     }
     // No-op navigate: default Clerk redirects can hang the webview on "Verifying…".
+    // Pending session tasks (choose-organization) are handled by App SignedInGate.
     await withTimeout(
       clerk.setActive({
         session: sessionId,
@@ -105,6 +117,22 @@ export function AuthGate() {
       12_000,
       "Activating session",
     );
+
+    const session =
+      clerk.session ??
+      clerk.client?.signedInSessions?.find((s) => s.id === sessionId) ??
+      clerk.client?.signedInSessions?.[0];
+
+    if (!session) {
+      throw new Error("Session activated but Clerk did not retain it. Try again.");
+    }
+
+    const task = session.currentTask?.key;
+    if (task && task !== "choose-organization") {
+      throw new Error(
+        `Sign-in needs another step (${task}). Complete it in the Clerk Account Portal, or disable that session task.`,
+      );
+    }
   }
 
   async function activateIfComplete(): Promise<boolean> {
@@ -119,8 +147,9 @@ export function AuthGate() {
 
     const existing =
       clerk.session?.id ??
-      clerk.client?.signedInSessions?.find((session) => session.status === "active")
-        ?.id ??
+      clerk.client?.signedInSessions?.find(
+        (session) => session.status === "active" || session.status === "pending",
+      )?.id ??
       clerk.client?.signedInSessions?.[0]?.id;
     if (existing) {
       await activateSession(existing);
@@ -130,16 +159,34 @@ export function AuthGate() {
     return false;
   }
 
-  /** Finish Clerk fields that block status=complete after email verify (usually legal_accepted). */
+  /** Finish Clerk fields that block status=complete after email verify (usually legal_accepted / name). */
   async function completeSignUpRequirements(
     attempt: SignUpResource,
   ): Promise<SignUpResource> {
     let current = attempt;
     const missing = current.missingFields ?? [];
+    const patch: {
+      legalAccepted?: boolean;
+      firstName?: string;
+      lastName?: string;
+    } = {};
 
     if (missing.includes("legal_accepted")) {
+      patch.legalAccepted = true;
+    }
+
+    if (missing.includes("first_name") || missing.includes("last_name")) {
+      const { firstName, lastName } = splitFullName(fullName);
+      if (!firstName) {
+        throw new Error("Enter your name to finish creating your account.");
+      }
+      if (missing.includes("first_name")) patch.firstName = firstName;
+      if (missing.includes("last_name")) patch.lastName = lastName || firstName;
+    }
+
+    if (Object.keys(patch).length > 0) {
       current = await withTimeout(
-        current.update({ legalAccepted: true }),
+        current.update(patch),
         12_000,
         "Completing sign-up",
       );
@@ -190,11 +237,17 @@ export function AuthGate() {
     setMode("sign-in");
   }
 
-  async function startEmailSignUp(identifier: string) {
+  async function startEmailSignUp(identifier: string, nameValue: string) {
     if (!signUp) throw new Error("Sign-up is not ready.");
+    const { firstName, lastName } = splitFullName(nameValue);
+    if (!firstName) {
+      throw new Error("Enter your name to create an account.");
+    }
     await withTimeout(
       signUp.create({
         emailAddress: identifier,
+        firstName,
+        ...(lastName ? { lastName } : { lastName: firstName }),
         legalAccepted: true,
       }),
       12_000,
@@ -221,6 +274,15 @@ export function AuthGate() {
         redirectUrlComplete: redirectUrl,
       });
     } catch (err) {
+      if (isAlreadySignedInError(err)) {
+        try {
+          if (await activateIfComplete()) return;
+        } catch (activateErr) {
+          setError(clerkErrorMessage(activateErr));
+          resetBusy();
+          return;
+        }
+      }
       setError(clerkErrorMessage(err));
       resetBusy();
     }
@@ -242,9 +304,16 @@ export function AuthGate() {
 
     try {
       if (isSignUp) {
+        if (!fullName.trim()) {
+          setError("Enter your name to create an account.");
+          return;
+        }
         try {
-          await startEmailSignUp(identifier);
+          await startEmailSignUp(identifier, fullName);
         } catch (err) {
+          if (isAlreadySignedInError(err)) {
+            if (await activateIfComplete()) return;
+          }
           await startEmailSignIn(identifier).catch(() => {
             throw err;
           });
@@ -253,8 +322,15 @@ export function AuthGate() {
         try {
           await startEmailSignIn(identifier);
         } catch (err) {
-          if (isIdentifierNotFoundError(err)) {
-            await startEmailSignUp(identifier);
+          if (isAlreadySignedInError(err)) {
+            if (await activateIfComplete()) return;
+          } else if (isIdentifierNotFoundError(err)) {
+            if (!fullName.trim()) {
+              setMode("sign-up");
+              setError("No account found for that email. Enter your name to sign up.");
+              return;
+            }
+            await startEmailSignUp(identifier, fullName);
           } else {
             throw err;
           }
@@ -263,6 +339,14 @@ export function AuthGate() {
       setStep("code");
       setCode("");
     } catch (err) {
+      if (isAlreadySignedInError(err)) {
+        try {
+          if (await activateIfComplete()) return;
+        } catch (activateErr) {
+          setError(clerkErrorMessage(activateErr));
+          return;
+        }
+      }
       setError(clerkErrorMessage(err));
     } finally {
       resetBusy();
@@ -387,17 +471,7 @@ export function AuthGate() {
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-background">
-      <header className="flex h-12 shrink-0 items-center justify-between border-b border-border bg-background px-4 sm:px-6">
-        <div className="flex items-center gap-2.5">
-          <span className="flex size-7 items-center justify-center bg-primary font-display text-sm font-bold text-primary-foreground">
-            J
-          </span>
-          <span className="font-display text-base tracking-tight text-foreground">
-            Jarbas
-          </span>
-        </div>
-        <p className="label-caps text-muted-foreground">01 · Account</p>
-      </header>
+      <GateNav stepLabel="01 · Account" />
 
       <div className="jarbas-shell flex min-h-0 flex-1 flex-col overflow-y-auto">
         <div className="mx-auto flex w-full max-w-md flex-1 flex-col items-center justify-center px-4 py-10 sm:px-6">
@@ -442,6 +516,27 @@ export function AuthGate() {
                   className="space-y-4"
                   onSubmit={(e) => void handleIdentifierSubmit(e)}
                 >
+                  {isSignUp ? (
+                    <div className="space-y-2">
+                      <label
+                        htmlFor="auth-name"
+                        className="label-caps text-muted-foreground"
+                      >
+                        Full name
+                      </label>
+                      <Input
+                        id="auth-name"
+                        type="text"
+                        autoComplete="name"
+                        value={fullName}
+                        onChange={(e) => setFullName(e.target.value)}
+                        placeholder="Enter your full name"
+                        className="h-10 rounded-none bg-cream"
+                        disabled={busy}
+                        required
+                      />
+                    </div>
+                  ) : null}
                   <div className="space-y-2">
                     <label
                       htmlFor="auth-email"

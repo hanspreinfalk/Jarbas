@@ -1,10 +1,12 @@
 import { useMutation, useQuery } from "convex/react";
+import { useEffect } from "react";
 import {
   ClerkLoaded,
   ClerkLoading,
   SignedIn,
   SignedOut,
   useOrganizationList,
+  useSession,
 } from "@clerk/clerk-react";
 import { ConvexUserSync } from "@/components/ConvexUserSync";
 import { AppShell } from "@/components/jarbas/app-shell";
@@ -22,19 +24,52 @@ function GateLoading() {
 }
 
 function SignedInGate() {
+  const { session } = useSession();
   const me = useQuery(api.user.me);
   const completeOnboarding = useMutation(api.user.completeOnboarding);
-  const { isLoaded, userMemberships } = useOrganizationList({
+  const { isLoaded, userMemberships, setActive } = useOrganizationList({
     userMemberships: {
       infinite: true,
     },
   });
 
+  const memberships = userMemberships.data ?? [];
+  const needsOrganization = session?.currentTask?.key === "choose-organization";
+  const existingOrgId = memberships[0]?.organization.id;
+
+  // Org may already exist (create succeeded earlier) while the session task
+  // is still pending - activate it instead of forcing another create form.
+  useEffect(() => {
+    if (!needsOrganization || !isLoaded || userMemberships.isLoading) return;
+    if (!existingOrgId || !setActive) return;
+    void setActive({
+      organization: existingOrgId,
+      navigate: async () => undefined,
+    }).catch((error) => {
+      console.error("Failed to activate organization for session task", error);
+    });
+  }, [
+    existingOrgId,
+    isLoaded,
+    needsOrganization,
+    setActive,
+    userMemberships.isLoading,
+  ]);
+
+  if (needsOrganization) {
+    if (!isLoaded || userMemberships.isLoading) {
+      return <GateLoading />;
+    }
+    if (memberships.length === 0) {
+      return <OrgGate />;
+    }
+    return <GateLoading />;
+  }
+
   if (!isLoaded || userMemberships.isLoading || me === undefined) {
     return <GateLoading />;
   }
 
-  const memberships = userMemberships.data ?? [];
   if (memberships.length === 0) {
     return <OrgGate />;
   }
@@ -62,11 +97,13 @@ function App() {
       </ClerkLoading>
 
       <ClerkLoaded>
-        <SignedOut>
+        {/* Pending sessions (e.g. choose-organization) must not look signed-out,
+            or Verify succeeds and the UI never leaves AuthGate. */}
+        <SignedOut treatPendingAsSignedOut={false}>
           <AuthGate />
         </SignedOut>
 
-        <SignedIn>
+        <SignedIn treatPendingAsSignedOut={false}>
           <ConvexUserSync />
           <SignedInGate />
         </SignedIn>

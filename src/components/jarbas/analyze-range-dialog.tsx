@@ -115,7 +115,7 @@ export function AnalyzeRangeDialog({
       const label =
         llmSettings.providers.find((p) => p.id === llmSettings.provider)
           ?.label ?? "provider";
-      setError(`Add a ${label} API key in Settings first.`);
+      setError(`Add a ${label} key in Settings first.`);
       return;
     }
     setStarting(true);
@@ -219,7 +219,7 @@ export function AnalyzeRangeDialog({
 
           <div className="flex items-center justify-between gap-3 border border-border bg-muted/30 px-3 py-2.5">
             <div className="min-w-0">
-              <p className="label-caps text-muted-foreground">Model</p>
+              <p className="label-caps text-muted-foreground">Which AI</p>
             </div>
             <ModelPicker
               settings={llmSettings}

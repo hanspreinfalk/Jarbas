@@ -30,6 +30,11 @@ export type AppTab = {
 
 export const APP_TABS: AppTab[] = [
   {
+    id: "ask",
+    label: "Ask",
+    icon: MessageSquare,
+  },
+  {
     id: "recording",
     label: "Recording",
     icon: AudioLines,
@@ -68,10 +73,5 @@ export const APP_TABS: AppTab[] = [
     id: "settings",
     label: "Settings",
     icon: Settings,
-  },
-  {
-    id: "ask",
-    label: "Ask",
-    icon: MessageSquare,
   },
 ];

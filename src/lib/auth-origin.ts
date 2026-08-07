@@ -66,3 +66,18 @@ export function isAlreadyVerifiedError(err: unknown): boolean {
 export function isIdentifierNotFoundError(err: unknown): boolean {
   return clerkErrorItems(err).some((e) => e.code === "form_identifier_not_found");
 }
+
+export function isAlreadySignedInError(err: unknown): boolean {
+  if (
+    clerkErrorItems(err).some(
+      (e) =>
+        e.code === "session_exists" ||
+        e.code === "identifier_already_signed_in" ||
+        e.code === "authentication_invalid",
+    )
+  ) {
+    return true;
+  }
+  const message = clerkErrorMessage(err).toLowerCase();
+  return message.includes("already signed in");
+}

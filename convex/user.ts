@@ -86,6 +86,30 @@ export const completeOnboarding = mutation({
   },
 });
 
+export const resetOnboarding = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const existing = await ctx.db
+      .query("user")
+      .withIndex("by_clerk_user", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+
+    if (!existing) {
+      throw new Error("User not found");
+    }
+
+    if (existing.hasFinishedOnboarding) {
+      await ctx.db.patch(existing._id, { hasFinishedOnboarding: false });
+    }
+    return existing._id;
+  },
+});
+
 /** Sets composioUserId to the Clerk user id once (first connector connect). */
 export const ensureComposioUserId = mutation({
   args: {},

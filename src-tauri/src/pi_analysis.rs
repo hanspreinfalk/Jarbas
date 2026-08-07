@@ -922,7 +922,7 @@ fn start_process(
             let analysis_state = app_reader.state::<AnalysisState>();
             handle_stdout_line(&app_reader, &analysis_state, &buffer);
         }
-        // Process died before settle — fail open job if still active.
+        // Process died before settle - fail open job if still active.
         let analysis_state = app_reader.state::<AnalysisState>();
         let unfinished = {
             let guard = analysis_state.job.lock().unwrap_or_else(|p| p.into_inner());
@@ -1076,7 +1076,13 @@ Write a JSON object to the job file with shape:
     }
   ]
 }
-Produce 3–8 learnings grounded in evidence. Focus on how the person works, thinks, sequences tasks, switches context, and forms rituals. Merge screen capture with connected-app activity into one coherent picture.
+Produce 3-8 LEARNINGS. A learning is an observation about HOW the person works and thinks - rituals, sequences, decision style, context switching, review habits, collaboration patterns. Describe what they do and how they think, not what to automate yet.
+Rules:
+- Observe process only. Do not pitch products, agents, or automations here.
+- "observed" = what they repeatedly do. "insight" = what that reveals about how they think or work.
+- "steps" = the repeatable sequence they already follow.
+- "relatedOpportunity" may hint at a future unlock title, but keep the learning itself observational.
+- Merge screen capture with connected-app activity into one coherent picture. Ground every claim in evidence.
 "#,
         AnalysisKind::Opportunities => r#"
 Write a JSON object to the job file with shape:
@@ -1103,7 +1109,12 @@ Write a JSON object to the job file with shape:
     }
   ]
 }
-Produce 3–8 opportunities. Prefer positive unlock framing and concrete delivery horizons (days/weeks). Lead with speed of delivery. Use both capture and connected-app evidence.
+Produce 3-8 OPPORTUNITIES. An opportunity is an improvement unlock DERIVED from how the person works - automations, shortcuts, agents, digests, handoff fixes, delivery accelerators.
+Rules:
+- Every opportunity must cite a learning in "relatedLearning" (the observation it comes from) and restate that observation briefly in "signal".
+- "unlock" = what becomes possible. Include concrete automation ideas when relevant.
+- Prefer positive unlock framing and concrete delivery horizons (days/weeks). Lead with speed of delivery.
+- Use both capture and connected-app evidence. Do not invent fake partner-billing stories.
 "#,
         AnalysisKind::Reports => r##"
 Write a JSON object to the job file with shape:
@@ -1131,20 +1142,32 @@ Write a JSON object to the job file with shape:
     "focusTakeaway": string,
     "whatTheyDid": string[],
     "timeline": [{ "time": string, "activity": string, "type": "deep" | "collab" | "admin" }],
+    "learnings": [{ "title": string, "observed": string, "insight": string, "apps": string[] }],
     "repetitiveWork": [{ "activity": string, "occurrences": number, "minutesEach": number, "automatable": boolean }],
     "bottlenecks": [{ "title": string, "cost": string, "unlock": string }],
-    "opportunities": [{ "name": string, "impact": number, "effort": number, "horizon": string }],
+    "opportunities": [{ "name": string, "unlock": string, "fromLearning": string, "impact": number, "effort": number, "horizon": string, "automationIdea": string }],
     "improvements": string[],
     "nextSteps": [{ "action": string, "owner": string, "when": string }],
     "scorecard": [{ "label": string, "score": number, "note": string }]
   }
 }
-Fill every section with estimates grounded in the evidence from capture AND connected apps. Numbers may be approximate when exact timing is unavailable, but never invent apps or activities that did not appear.
+This report is the FULL PACKAGE for the period - complete, polished, and exhaustive. It must include:
+1) Timeline of what happened
+2) Clear explanation (headline + executiveBrief + findings)
+3) Learnings: how they work and think (observations only)
+4) Opportunities: improvement unlocks and automation ideas derived from those learnings
+5) Supporting evidence: time allocation, cadence, repetitive work, bottlenecks, scorecard, next steps
+
+Rules:
+- Fill EVERY section. Prefer depth over thin summaries. Numbers may be approximate when exact timing is unavailable, but never invent apps or activities that did not appear.
+- "learnings" must describe process/thinking patterns. "opportunities" must each name the learning they come from in "fromLearning" and include a concrete "automationIdea" when relevant.
+- Prefer positive unlock framing. Avoid waste/leakage language.
+- Title/subtitle should read like a serious cycle report, not a stub.
 "##,
     };
 
     let toolkit_list = if connected_toolkits.is_empty() {
-        "(none listed — still try COMPOSIO_SEARCH_TOOLS to discover what is available)".to_string()
+        "(none listed - still try COMPOSIO_SEARCH_TOOLS to discover what is available)".to_string()
     } else {
         connected_toolkits.join(", ")
     };
@@ -1179,12 +1202,12 @@ Proceed with the fullest local capture analysis possible. Do not invent external
     };
 
     format!(
-        r#"[Context: User timezone is {time_zone}. Current local time is {local_time}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet. Never mention Screenpipe or other capture vendor/SDK names. This is a background analysis job — do not chat with the user; only investigate thoroughly and write the JSON file.]
+        r#"[Context: User timezone is {time_zone}. Current local time is {local_time}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet. Never mention Screenpipe or other capture vendor/SDK names. This is a background analysis job - do not chat with the user; only investigate thoroughly and write the JSON file.]
 
 Task: Reconstruct EVERYTHING that happened during {period} (local calendar dates {start_date} through {end_date} inclusive) and produce {kind_label}.
 You must combine (1) the full local capture database for that range and (2) ALL connected Composio apps for that same range. Do not stop after a shallow sample.
 
-=== PART A — Local capture (required, exhaustive) ===
+=== PART A - Local capture (required, exhaustive) ===
 Paths:
 - SQLite: {db}
 - Snapshots: ~/.jarbas/data/
@@ -1203,15 +1226,16 @@ Run bash/sqlite3 across the whole timeframe. Raise limits if needed until the wi
 5) Memories / tags overlapping the range when present.
 6) Optional: sample a few snapshot paths under ~/.jarbas/data/ only if titles/OCR are thin.
 
-=== PART B — Connected apps via Composio (required when available) ===
+=== PART B - Connected apps via Composio (required when available) ===
 {composio_section}
 
 === Synthesis rules ===
 - Ground every claim in observed capture rows and/or Composio results. Cite apps and local times in evidence.
 - Cross-link the same work across screen + email + chat + calendar + code when it is the same thread.
 - If a source is empty for the range, say so in evidence and still use the other sources.
-- If almost no data exists anywhere, write valid JSON with an empty items array (or a sparse report) — do not invent fake partner-billing stories.
+- If almost no data exists anywhere, write valid JSON with an empty items array (or a sparse report) - do not invent fake partner-billing stories.
 - Prefer positive unlock framing for opportunities/reports. Avoid waste/leakage language.
+- Keep the ladder clear: learnings = how they work/think; opportunities = unlocks derived from learnings; reports = the full package (timeline + explanation + learnings + opportunities).
 - Never use emojis. Never use em dashes.
 - Take the time needed. Thoroughness beats speed for this job.
 

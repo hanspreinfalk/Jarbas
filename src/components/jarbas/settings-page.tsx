@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { useMutation } from "convex/react";
 import {
   Check,
   Copy,
@@ -6,8 +7,10 @@ import {
   EyeOff,
   ExternalLink,
   RefreshCw,
+  RotateCcw,
   Trash2,
 } from "lucide-react";
+import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ProviderLogo } from "@/components/jarbas/provider-logo";
@@ -20,6 +23,11 @@ import {
   type LlmProvider,
   type LlmSettings,
 } from "@/lib/llm-settings";
+import {
+  accessibilitySettingsHint,
+  capturePermissionsBlurb,
+  thisComputerPhrase,
+} from "@/lib/platform";
 import {
   getAccessibilityPermissionStatus,
   openPrivacySettings,
@@ -95,13 +103,13 @@ function agentStatusCopy(status: PiAgentStatus | undefined): {
     case "ready":
       return {
         label: "Ready",
-        detail: "Ask can use the assistant on this Mac.",
+        detail: `Ask is ready to use on ${thisComputerPhrase()}.`,
         tone: "text-primary",
       };
     case "installing":
       return {
         label: "Setting up…",
-        detail: status.message || "Installing the assistant.",
+        detail: status.message || `Setting up Ask on ${thisComputerPhrase()}.`,
         tone: "text-muted-foreground",
       };
     case "failed":
@@ -113,7 +121,7 @@ function agentStatusCopy(status: PiAgentStatus | undefined): {
     case "idle":
       return {
         label: "Not set up",
-        detail: "Set up the assistant to use Ask.",
+        detail: "Set this up once so Ask can answer.",
         tone: "text-muted-foreground",
       };
   }
@@ -178,7 +186,7 @@ function ApiKeyRow({
           spellCheck={false}
           value={draft}
           onChange={(event) => setDraft(event.target.value)}
-          placeholder="Paste API key"
+          placeholder="Paste your key here"
           className="h-9 rounded-none border-0 bg-transparent shadow-none focus-visible:ring-0"
         />
         <button
@@ -233,6 +241,7 @@ function ApiKeyRow({
 }
 
 export function SettingsPage() {
+  const resetOnboarding = useMutation(api.user.resetOnboarding);
   const [piInfo, setPiInfo] = useState<PiAgentInfo | null>(null);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
   const [storage, setStorage] = useState<CaptureStorageStats | null>(null);
@@ -241,6 +250,8 @@ export function SettingsPage() {
   const [rangeOpen, setRangeOpen] = useState(false);
   const [fullOpen, setFullOpen] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [replayingOnboarding, setReplayingOnboarding] = useState(false);
+  const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
   const [presetId, setPresetId] = useState<string | "custom">("last-14");
@@ -269,7 +280,7 @@ export function SettingsPage() {
     try {
       await screenpipe.stop();
     } catch {
-      // Best effort — reset can still proceed if capture wasn't running.
+      // Best effort - reset can still proceed if capture wasn't running.
     }
   }
 
@@ -306,7 +317,7 @@ export function SettingsPage() {
       setFullOpen(false);
       setResetNotice(result.message);
       await refreshStorage();
-      // Pi tree was wiped — kick off a fresh install.
+      // Pi tree was wiped - kick off a fresh install.
       void ensurePiAgentInstalled(true).catch(() => undefined);
       void getPiAgentStatus()
         .then(setPiInfo)
@@ -438,6 +449,20 @@ export function SettingsPage() {
     }
   }
 
+  async function handleReplayOnboarding() {
+    if (replayingOnboarding) return;
+    setReplayingOnboarding(true);
+    setOnboardingError(null);
+    try {
+      await resetOnboarding();
+    } catch (error) {
+      setOnboardingError(
+        error instanceof Error ? error.message : String(error),
+      );
+      setReplayingOnboarding(false);
+    }
+  }
+
   const installing = piInfo?.status.kind === "installing";
   const agentStatus = agentStatusCopy(piInfo?.status);
 
@@ -448,7 +473,7 @@ export function SettingsPage() {
         Settings
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Theme, model keys, assistant, and local storage.
+        Theme, keys, Ask setup, onboarding, and local storage.
       </p>
 
       <section className="mt-10">
@@ -471,14 +496,14 @@ export function SettingsPage() {
       </section>
 
       <section className="mt-8">
-        <p className="label-caps text-primary">Ask models</p>
+        <p className="label-caps text-primary">Ask</p>
         <div className="mt-2 border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-base font-semibold tracking-tight text-foreground">
-              API keys
+              Provider keys
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Kept on this Mac. Pick the model in Ask.
+              Kept on {thisComputerPhrase()}. Choose which one to use in Ask.
             </p>
           </div>
           <div className="divide-y divide-border">
@@ -496,14 +521,14 @@ export function SettingsPage() {
       </section>
 
       <section className="mt-8">
-        <p className="label-caps text-primary">Ask</p>
+        <p className="label-caps text-primary">Ask setup</p>
         <div className="mt-2 border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
             <h2 className="text-base font-semibold tracking-tight text-foreground">
-              Assistant
+              Local Ask engine
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Runs privately on this Mac to answer Ask.
+              Runs privately on {thisComputerPhrase()} so Ask can answer.
             </p>
           </div>
           <div className="flex items-center justify-between gap-3 px-4 py-4">
@@ -531,6 +556,39 @@ export function SettingsPage() {
       </section>
 
       <section className="mt-8">
+        <p className="label-caps text-primary">Onboarding</p>
+        <div className="mt-2 border border-border bg-card">
+          <div className="flex items-start justify-between gap-4 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold tracking-tight text-foreground">
+                Setup walkthrough
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Replay welcome and permission setup. Your keys and local data
+                stay put.
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="shrink-0 rounded-none"
+              disabled={replayingOnboarding}
+              onClick={() => void handleReplayOnboarding()}
+            >
+              <RotateCcw className="size-3.5" />
+              {replayingOnboarding ? "Starting…" : "Replay onboarding"}
+            </Button>
+          </div>
+          {onboardingError ? (
+            <p className="border-t border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {onboardingError}
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="mt-8">
         <p className="label-caps text-primary">Permissions</p>
         <div className="mt-2 border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
@@ -538,7 +596,7 @@ export function SettingsPage() {
               System access
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              macOS permissions for capture.
+              {capturePermissionsBlurb()}
             </p>
           </div>
           <ul className="divide-y divide-border">
@@ -567,7 +625,7 @@ export function SettingsPage() {
                         <span className="font-medium text-foreground">
                           {accessibilityInfo?.processName ?? "jarbas"}
                         </span>{" "}
-                        in System Settings → Accessibility
+                        {accessibilitySettingsHint()}
                         {accessibilityInfo?.executablePath ? (
                           <>
                             {" "}
@@ -601,6 +659,16 @@ export function SettingsPage() {
                       size="sm"
                       className="rounded-none"
                       onClick={() => {
+                        if (permission.id === "accessibility") {
+                          void getAccessibilityPermissionStatus({
+                            prompt: true,
+                          }).then(() => {
+                            void openPrivacySettings(permission.pane).then(() => {
+                              void refreshPermissions();
+                            });
+                          });
+                          return;
+                        }
                         void openPrivacySettings(permission.pane).then(() => {
                           void refreshPermissions();
                         });
@@ -625,27 +693,27 @@ export function SettingsPage() {
               Local data
             </h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              App data root is ~/.jarbas on this machine.
+              Saved on {thisComputerPhrase()} for Jarbas.
             </p>
           </div>
           <div className="grid grid-cols-2 gap-px bg-border">
             <div className="bg-card px-4 py-4">
               <p className="label-caps text-muted-foreground">Size</p>
               <p className="mt-1 font-display text-2xl tracking-tight text-foreground">
-                {storage ? formatBytes(storage.bytes) : "—"}
+                {storage ? formatBytes(storage.bytes) : "-"}
               </p>
             </div>
             <div className="bg-card px-4 py-4">
               <p className="label-caps text-muted-foreground">Frames</p>
               <p className="mt-1 font-display text-2xl tracking-tight text-foreground">
-                {storage ? formatFrameCount(storage.frames) : "—"}
+                {storage ? formatFrameCount(storage.frames) : "-"}
               </p>
             </div>
           </div>
 
           <div className="border-t border-border px-4 py-4">
             <p className="text-sm text-muted-foreground">
-              Delete a date range, or reset all of ~/.jarbas.
+              Delete a date range, or reset all local data.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
@@ -704,8 +772,8 @@ export function SettingsPage() {
           <DialogHeader>
             <DialogTitle>Delete data by range</DialogTitle>
             <DialogDescription>
-              Deletes capture and analysis in this range. Keeps keys and the
-              assistant.
+              Deletes recordings and analysis in this range. Keeps your keys and
+              Ask setup.
             </DialogDescription>
           </DialogHeader>
 
@@ -816,8 +884,8 @@ export function SettingsPage() {
           <DialogHeader>
             <DialogTitle>Reset all local data?</DialogTitle>
             <DialogDescription>
-              This deletes everything under ~/.jarbas — capture, analysis,
-              assistant install, and API keys. You cannot undo this.
+              This deletes all local Jarbas data on {thisComputerPhrase()} -
+              recordings, analysis, Ask setup, and keys. You cannot undo this.
             </DialogDescription>
           </DialogHeader>
           {resetError ? (

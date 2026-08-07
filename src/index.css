@@ -193,9 +193,9 @@
   .dark .jarbas-chat-canvas {
     background:
       radial-gradient(
-        800px 420px at 50% 0%,
-        rgba(188, 226, 255, 0.06),
-        transparent 60%
+        720px 380px at 50% -10%,
+        rgba(188, 226, 255, 0.04),
+        transparent 58%
       ),
       linear-gradient(180deg, #0f0f1c 0%, #0a0a16 38%, #0a0a16 100%);
   }

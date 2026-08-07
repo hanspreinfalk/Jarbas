@@ -1,4 +1,4 @@
 [[permission]]
 identifier = "allow-open-privacy-settings"
-description = "Allows opening macOS Screen Recording and Accessibility settings panes."
-commands.allow = ["open_privacy_settings"]
+description = "Allows opening macOS Screen Recording and Accessibility settings panes and checking Accessibility trust for this process."
+commands.allow = ["open_privacy_settings", "check_accessibility_permission"]
