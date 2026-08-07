@@ -647,7 +647,9 @@ fn count_frames_in_db(db: &Path) -> Option<u64> {
 }
 
 fn read_last_capture_session() -> Option<LastCaptureSession> {
-    read_last_session_from_db().or_else(read_last_session_from_mp4)
+    // Prefer MP4 session files — they map 1:1 to recording presses.
+    // The frames table spans *all* capture ever, so MIN/MAX is wrong for "last session".
+    read_last_session_from_mp4().or_else(read_last_session_from_db)
 }
 
 fn read_last_session_from_db() -> Option<LastCaptureSession> {
@@ -656,9 +658,35 @@ fn read_last_session_from_db() -> Option<LastCaptureSession> {
         return None;
     }
 
+    // Last contiguous run of frames: a gap > SESSION_GAP_SECS starts a new session.
+    const SESSION_GAP_SECS: i64 = 120;
+    let sql = format!(
+        "
+WITH ordered AS (
+  SELECT timestamp AS ts,
+         LAG(timestamp) OVER (ORDER BY timestamp) AS prev
+  FROM frames
+),
+boundaries AS (
+  SELECT ts AS started_at
+  FROM ordered
+  WHERE prev IS NULL
+     OR (julianday(ts) - julianday(prev)) * 86400.0 > {SESSION_GAP_SECS}
+),
+last_start AS (
+  SELECT MAX(started_at) AS started_at FROM boundaries
+)
+SELECT last_start.started_at,
+       MAX(frames.timestamp),
+       COUNT(*)
+FROM frames
+JOIN last_start ON frames.timestamp >= last_start.started_at;
+"
+    );
+
     let output = std::process::Command::new("sqlite3")
         .arg(&db)
-        .arg("SELECT MIN(timestamp), MAX(timestamp), COUNT(*) FROM frames;")
+        .arg(sql)
         .output()
         .ok()?;
     if !output.status.success() {
@@ -667,7 +695,7 @@ fn read_last_session_from_db() -> Option<LastCaptureSession> {
 
     let line = String::from_utf8_lossy(&output.stdout);
     let line = line.trim();
-    if line.is_empty() || line == "||0" {
+    if line.is_empty() || line.starts_with('|') || line == "||0" {
         return None;
     }
 

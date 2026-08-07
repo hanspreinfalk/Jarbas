@@ -369,45 +369,67 @@ function ToolActivityList({ tools }: { tools: ToolCallState[] }) {
 function WorkedForDetails({
   durationLabel,
   tools,
+  live = false,
 }: {
   durationLabel: string;
   tools: ToolCallState[];
+  live?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(live);
   const toolCount = tools.length;
   const collapsible = toolCount > 0;
+  const prefix = live ? "Running" : "Worked for";
+  const showTools = collapsible && (live || open);
 
   if (!collapsible) {
     return (
-      <p className="text-[13px] text-muted-foreground">
-        Worked for {durationLabel}
+      <p
+        className={cn(
+          "text-[13px] text-muted-foreground",
+          live && "tabular-nums",
+        )}
+      >
+        {prefix} {durationLabel}
       </p>
     );
   }
 
   return (
     <div className="min-w-0">
-      <button
-        type="button"
-        onClick={() => setOpen((current) => !current)}
-        className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-      >
-        <ToolGlyph />
-        <span className="truncate">
-          Worked for {durationLabel}
-          <span className="text-muted-foreground/70">
-            {" "}
-            · {toolCount} {toolCount === 1 ? "tool" : "tools"}
+      {live ? (
+        <p className="inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground">
+          <ToolGlyph />
+          <span className="truncate tabular-nums">
+            {prefix} {durationLabel}
+            <span className="text-muted-foreground/70">
+              {" "}
+              · {toolCount} {toolCount === 1 ? "tool" : "tools"}
+            </span>
           </span>
-        </span>
-        <ChevronDown
-          className={cn(
-            "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
-            open && "rotate-180",
-          )}
-        />
-      </button>
-      {open ? (
+        </p>
+      ) : (
+        <button
+          type="button"
+          onClick={() => setOpen((current) => !current)}
+          className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+        >
+          <ToolGlyph />
+          <span className="truncate">
+            {prefix} {durationLabel}
+            <span className="text-muted-foreground/70">
+              {" "}
+              · {toolCount} {toolCount === 1 ? "tool" : "tools"}
+            </span>
+          </span>
+          <ChevronDown
+            className={cn(
+              "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+              open && "rotate-180",
+            )}
+          />
+        </button>
+      )}
+      {showTools ? (
         <div className="mt-1.5">
           <ToolActivityList tools={tools} />
         </div>
@@ -500,6 +522,7 @@ export function AskPage() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [pinnedUserId, setPinnedUserId] = useState<string | null>(null);
   const [replyRoom, setReplyRoom] = useState(0);
@@ -549,6 +572,15 @@ export function AskPage() {
       unlistenAsk?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!sending) return;
+    setNowMs(Date.now());
+    const id = window.setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [sending]);
 
   function patchAssistant(
     updater: (message: ChatMessage) => ChatMessage,
@@ -822,25 +854,28 @@ export function AskPage() {
     const tools = message.tools ?? [];
     const hasTools = tools.length > 0;
     const isLive = sending && assistantIdRef.current === message.id;
-    const showThinking = isLive && !message.content.trim();
+    const showThinking = isLive && !message.content.trim() && !hasTools;
     const startedAt = message.startedAt ?? message.createdAt;
-    const endedAt = message.finishedAt ?? (!isLive ? message.createdAt : null);
+    const endedAt = message.finishedAt ?? (!isLive ? Date.now() : null);
+    const elapsedMs = isLive
+      ? Math.max(0, nowMs - startedAt)
+      : Math.max(0, (endedAt ?? startedAt) - startedAt);
+    const durationLabel = formatWorkDuration(elapsedMs);
     const showWorkSummary =
-      !isLive &&
+      isLive ||
       Boolean(
         message.content.trim() || hasTools || message.error || message.finishedAt,
       );
-    const durationLabel = endedAt
-      ? formatWorkDuration(Math.max(0, endedAt - startedAt))
-      : formatWorkDuration(0);
 
     return (
       <div className="flex w-full max-w-[92%] flex-col gap-3">
         {showWorkSummary ? (
-          <WorkedForDetails durationLabel={durationLabel} tools={tools} />
+          <WorkedForDetails
+            durationLabel={durationLabel}
+            tools={tools}
+            live={isLive}
+          />
         ) : null}
-
-        {isLive && hasTools ? <ToolActivityList tools={tools} /> : null}
 
         {showThinking ? (
           <p className="animate-thinking text-sm text-muted-foreground">
