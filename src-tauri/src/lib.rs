@@ -179,11 +179,40 @@ async fn list_composio_toolkits(
     })
 }
 
+/// Packaged builds serve the UI over http://localhost so Clerk accepts
+/// redirect_url (tauri:// is rejected with invalid_url_scheme).
+const PACKAGED_AUTH_PORT: u16 = 1421;
+
+fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+
+    let url = if cfg!(dev) {
+        // Matches tauri.conf.json build.devUrl / Vite.
+        "http://localhost:1420".parse()?
+    } else {
+        format!("http://localhost:{PACKAGED_AUTH_PORT}").parse()?
+    };
+
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+        .title("Deployment Company of San Francisco")
+        .inner_size(1180.0, 780.0)
+        .build()?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     load_env();
-    tauri::Builder::default()
+
+    #[cfg(dev)]
+    let builder = tauri::Builder::default().plugin(tauri_plugin_opener::init());
+
+    #[cfg(not(dev))]
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_localhost::Builder::new(PACKAGED_AUTH_PORT).build());
+
+    builder
         .manage(pi_agent::PiAgentState::default())
         .manage(pi_chat::AskChatState::default())
         .manage(pi_analysis::AnalysisState::default())
@@ -191,6 +220,9 @@ pub fn run() {
             // Never return Err from setup on macOS: Tauri panics inside
             // tao's did_finish_launching (extern "C"), which becomes
             // panic_cannot_unwind → SIGABRT. Capture init failure instead.
+            if let Err(error) = create_main_window(app) {
+                eprintln!("main window create failed: {error}");
+            }
             if let Err(error) = screenpipe::init_host(app) {
                 eprintln!("capture host init failed: {error}");
             }

@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
+        "label": "main",
         "title": "Deployment Company of San Francisco",
         "width": 1180,
-        "height": 780
+        "height": 780,
+        "create": false
       }
     ],
     "security": {

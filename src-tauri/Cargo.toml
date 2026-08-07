@@ -26,4 +26,5 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 dotenvy = "0.15"
 dirs = "6"
 tokio = { version = "1.53.1", features = ["io-util", "macros", "process", "sync", "time"] }
+tauri-plugin-localhost = "2"
 

@@ -62,9 +62,15 @@ export function AppHeaderActions({
       <div className="flex shrink-0 items-center gap-1.5">
         <OrganizationSwitcher
           hidePersonal
-          afterCreateOrganizationUrl="/"
           afterSelectOrganizationUrl="/"
-          appearance={jarbasClerkAppearance}
+          appearance={{
+            ...jarbasClerkAppearance,
+            elements: {
+              ...jarbasClerkAppearance.elements,
+              organizationSwitcherPopoverActionButton__createOrganization:
+                "hidden!",
+            },
+          }}
         />
       </div>
 
