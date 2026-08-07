@@ -614,12 +614,6 @@ export function AuthGate() {
                       disabled={busy}
                       required
                     />
-                    {isSignUp ? (
-                      <p className="text-xs text-muted-foreground">
-                        Company email only. Personal providers like Gmail are not
-                        allowed.
-                      </p>
-                    ) : null}
                   </div>
                   <Button
                     type="submit"

@@ -44,7 +44,7 @@ const PERSONAL_EMAIL_DOMAINS = new Set([
 ]);
 
 export const COMPANY_EMAIL_REQUIRED_MESSAGE =
-  "Use a company email address. Personal providers like Gmail, Yahoo, Outlook, and iCloud are not allowed.";
+  "Use a company email address.";
 
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();

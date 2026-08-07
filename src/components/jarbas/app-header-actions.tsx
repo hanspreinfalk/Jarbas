@@ -70,12 +70,8 @@ export function AppHeaderActions({
             ...jarbasClerkAppearance,
             elements: {
               ...jarbasClerkAppearance.elements,
-    organizationSwitcherPopoverActionButton__createOrganization:
+              organizationSwitcherPopoverActionButton__createOrganization:
                 "hidden!",
-              // Prefer Settings → Team invite (company-email validated).
-              organizationProfileMembersPageInviteButton: "hidden!",
-              organizationProfileInviteForm: "hidden!",
-              membersPageInviteButton: "hidden!",
             },
           }}
         />
