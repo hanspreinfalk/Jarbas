@@ -496,64 +496,97 @@ function WorkedForDetails({
   durationLabel,
   tools,
   live = false,
+  showThinking = false,
 }: {
   durationLabel: string;
   tools: ToolCallState[];
   live?: boolean;
+  showThinking?: boolean;
 }) {
-  const [open, setOpen] = useState(live);
+  const [open, setOpen] = useState(false);
   const toolCount = tools.length;
-  const collapsible = toolCount > 0;
-  const prefix = live ? "Running" : "Worked for";
-  const showTools = collapsible && (live || open);
+  const hasTools = toolCount > 0;
 
-  if (!collapsible) {
+  if (!showThinking && !hasTools && !live) {
     return (
-      <p
-        className={cn(
-          "text-[13px] text-muted-foreground",
-          live && "tabular-nums",
-        )}
-      >
-        {prefix} {durationLabel}
+      <p className="text-[13px] text-muted-foreground">
+        Worked for {durationLabel}
       </p>
+    );
+  }
+
+  if (!showThinking && !hasTools) {
+    return null;
+  }
+
+  if (showThinking) {
+    return (
+      <div className="min-w-0">
+        {hasTools ? (
+          <div>
+            <button
+              type="button"
+              onClick={() => setOpen((current) => !current)}
+              className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <span>
+                {open ? "Hide technical details" : "Show technical details"}
+              </span>
+              <ChevronDown
+                className={cn(
+                  "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+                  open && "rotate-180",
+                )}
+              />
+            </button>
+            {open ? (
+              <div className="mt-1.5">
+                <p className="mb-1 truncate text-[13px] text-muted-foreground/70 tabular-nums">
+                  Running {durationLabel}
+                  <span>
+                    {" "}
+                    · {toolCount} {toolCount === 1 ? "tool" : "tools"}
+                  </span>
+                </p>
+                <ToolActivityList tools={tools} live={live} />
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+        <p className={cn("text-sm text-foreground", hasTools && "mt-1.5")}>
+          <span className="animate-thinking font-medium">Thinking…</span>
+          <span className="ml-1.5 text-[13px] text-muted-foreground tabular-nums">
+            {durationLabel}
+          </span>
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="min-w-0">
-      {live ? (
-        <p className="truncate text-[13px] text-muted-foreground tabular-nums">
-          {prefix} {durationLabel}
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
+      >
+        <span className="truncate tabular-nums">
+          Worked for {durationLabel}
           <span className="text-muted-foreground/70">
             {" "}
             · {toolCount} {toolCount === 1 ? "tool" : "tools"}
           </span>
-        </p>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setOpen((current) => !current)}
-          className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-        >
-          <span className="truncate">
-            {prefix} {durationLabel}
-            <span className="text-muted-foreground/70">
-              {" "}
-              · {toolCount} {toolCount === 1 ? "tool" : "tools"}
-            </span>
-          </span>
-          <ChevronDown
-            className={cn(
-              "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
-              open && "rotate-180",
-            )}
-          />
-        </button>
-      )}
-      {showTools ? (
+        </span>
+        <ChevronDown
+          className={cn(
+            "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open ? (
         <div className="mt-1.5">
-          <ToolActivityList tools={tools} live={live} />
+          <ToolActivityList tools={tools} live={false} />
         </div>
       ) : null}
     </div>
@@ -976,7 +1009,8 @@ export function AskPage() {
     const tools = message.tools ?? [];
     const hasTools = tools.length > 0;
     const isLive = sending && assistantIdRef.current === message.id;
-    const showThinking = isLive && !message.content.trim() && !hasTools;
+    const hasReply = Boolean(message.content.trim());
+    const showThinking = isLive && !hasReply;
     const startedAt = message.startedAt ?? message.createdAt;
     const endedAt = message.finishedAt ?? (!isLive ? Date.now() : null);
     const elapsedMs = isLive
@@ -984,15 +1018,13 @@ export function AskPage() {
       : Math.max(0, (endedAt ?? startedAt) - startedAt);
     const durationLabel = formatWorkDuration(elapsedMs);
     const showWorkSummary =
-      isLive ||
-      Boolean(
-        message.content.trim() || hasTools || message.error || message.finishedAt,
-      );
+      showThinking ||
+      hasTools ||
+      Boolean(message.error || message.finishedAt) ||
+      (!isLive && hasReply);
 
-    const showReply =
-      Boolean(message.content.trim()) ||
-      Boolean(message.error) ||
-      showThinking;
+    const showReply = hasReply || Boolean(message.error);
+    const showDivider = showWorkSummary && showReply;
 
     return (
       <div className="flex w-full max-w-[92%] flex-col gap-3">
@@ -1001,18 +1033,11 @@ export function AskPage() {
             durationLabel={durationLabel}
             tools={tools}
             live={isLive}
+            showThinking={showThinking}
           />
         ) : null}
 
-        {showWorkSummary && showReply ? (
-          <div className="border-t border-border/70" />
-        ) : null}
-
-        {showThinking ? (
-          <p className="animate-thinking text-sm text-muted-foreground">
-            Thinking…
-          </p>
-        ) : null}
+        {showDivider ? <div className="border-t border-border/70" /> : null}
 
         {message.content.trim() ? (
           <AssistantMarkdown content={message.content} />
