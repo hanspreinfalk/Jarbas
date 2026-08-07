@@ -14,15 +14,22 @@ if (!PUBLISHABLE_KEY) {
   throw new Error("Missing VITE_CLERK_PUBLISHABLE_KEY");
 }
 
-const authRedirectUrl = getAuthRedirectUrl("/");
+// Absolute URLs so packaged localhost (1421) and tauri:// never fall back to
+// Clerk Account Portal (*.accounts.dev) after OAuth.
+const authHomeUrl = getAuthRedirectUrl("/");
+const authSignInUrl = getAuthRedirectUrl("/");
+const authSignUpUrl = getAuthRedirectUrl("/");
 
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <React.StrictMode>
     <ClerkProvider
       publishableKey={PUBLISHABLE_KEY}
-      afterSignOutUrl={authRedirectUrl}
-      signInFallbackRedirectUrl={authRedirectUrl}
-      signUpFallbackRedirectUrl={authRedirectUrl}
+      // Required for custom auth UI — without these, OAuth returns to Account Portal.
+      signInUrl={authSignInUrl}
+      signUpUrl={authSignUpUrl}
+      afterSignOutUrl={authHomeUrl}
+      signInFallbackRedirectUrl={authHomeUrl}
+      signUpFallbackRedirectUrl={authHomeUrl}
       allowedRedirectProtocols={["http:", "https:", "tauri:"]}
       appearance={jarbasClerkAppearance}
     >

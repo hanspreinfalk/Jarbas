@@ -1,6 +1,13 @@
-import { UserButton, useUser } from "@clerk/clerk-react";
-import { ChevronsUpDown } from "lucide-react";
-import { jarbasClerkAppearance } from "@/lib/clerk-appearance";
+import { useClerk, useUser } from "@clerk/clerk-react";
+import { ChevronsUpDown, LogOut, UserRound } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { signOutAndClearLocalAuth } from "@/lib/auth-origin";
 import { cn } from "@/lib/utils";
 
 function initialsFromName(name: string | null | undefined, email?: string | null) {
@@ -13,6 +20,7 @@ function initialsFromName(name: string | null | undefined, email?: string | null
 }
 
 export function SidebarUserMenu() {
+  const clerk = useClerk();
   const { user, isLoaded } = useUser();
 
   if (!isLoaded || !user) {
@@ -32,12 +40,19 @@ export function SidebarUserMenu() {
   const imageUrl = user.imageUrl;
 
   return (
-    <div className="relative w-full group-data-[collapsible=icon]:flex group-data-[collapsible=icon]:justify-center">
-      <div
-        className={cn(
-          "pointer-events-none flex w-full items-center gap-2.5 border border-border bg-background px-2.5 py-2 text-left",
-          "group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-0",
-        )}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            className={cn(
+              "flex h-auto w-full items-center justify-start gap-2.5 rounded-none border-border bg-background px-2.5 py-2 text-left",
+              "group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:border-0 group-data-[collapsible=icon]:p-0",
+            )}
+            aria-label="Open account menu"
+          />
+        }
       >
         {imageUrl ? (
           <img
@@ -62,32 +77,25 @@ export function SidebarUserMenu() {
           ) : null}
         </span>
         <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
-      </div>
-
-      <div
-        className={cn(
-          "absolute inset-0 z-10",
-          "[&_.cl-rootBox]:size-full!",
-          "[&_.cl-userButtonBox]:size-full!",
-          "[&_.cl-userButtonTrigger]:size-full!",
-          "[&_.cl-userButtonTrigger]:rounded-none!",
-          "[&_.cl-userButtonTrigger]:opacity-0!",
-          "[&_.cl-avatarBox]:hidden!",
-        )}
-      >
-        <UserButton
-          afterSignOutUrl="/"
-          appearance={{
-            ...jarbasClerkAppearance,
-            elements: {
-              ...jarbasClerkAppearance.elements,
-              rootBox: "size-full!",
-              userButtonBox: "size-full!",
-              userButtonTrigger: "size-full! rounded-none! opacity-0!",
-            },
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" side="top" className="min-w-44 rounded-none">
+        <DropdownMenuItem
+          className="rounded-none"
+          onClick={() => clerk.openUserProfile()}
+        >
+          <UserRound className="size-3.5" />
+          Manage account
+        </DropdownMenuItem>
+        <DropdownMenuItem
+          className="rounded-none"
+          onClick={() => {
+            void signOutAndClearLocalAuth(clerk);
           }}
-        />
-      </div>
-    </div>
+        >
+          <LogOut className="size-3.5" />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

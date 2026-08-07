@@ -1,23 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { useOrganizationList, useUser } from "@clerk/clerk-react";
+import { useClerk, useOrganizationList } from "@clerk/clerk-react";
 import { Building2, Mail } from "lucide-react";
 import { GateNav } from "@/components/jarbas/gate-nav";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { clerkErrorMessage } from "@/lib/auth-origin";
 import { cn } from "@/lib/utils";
-
-function suggestedOrgName(email: string | undefined): string {
-  if (!email) return "";
-  const local = email.split("@")[0]?.trim() ?? "";
-  if (!local) return "";
-  const cleaned = local.replace(/[._+-]+/g, " ").trim();
-  if (!cleaned) return "";
-  return cleaned
-    .split(/\s+/)
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
-}
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
@@ -44,7 +32,7 @@ function roleLabel(role: string): string {
 }
 
 export function OrgGate() {
-  const { user } = useUser();
+  const clerk = useClerk();
   const {
     isLoaded,
     createOrganization,
@@ -74,12 +62,6 @@ export function OrgGate() {
   const hasChoices = memberships.length > 0 || invitations.length > 0;
   const createExpanded = showCreate || !hasChoices;
 
-  useEffect(() => {
-    if (name) return;
-    const suggestion = suggestedOrgName(user?.primaryEmailAddress?.emailAddress);
-    if (suggestion) setName(suggestion);
-  }, [name, user?.primaryEmailAddress?.emailAddress]);
-
   // Expand create when there are no invites/memberships to pick from.
   useEffect(() => {
     if (listsLoading) return;
@@ -100,6 +82,7 @@ export function OrgGate() {
       12_000,
       label,
     );
+    await userMemberships.revalidate?.();
   }
 
   async function handleJoinMembership(organizationId: string) {
@@ -175,12 +158,28 @@ export function OrgGate() {
 
     try {
       // Do not pass slug - this Clerk instance has organization slugs disabled.
-      const organization = await withTimeout(
-        createOrganization({ name: orgName }),
-        12_000,
-        "Creating organization",
-      );
-      await activateOrganization(organization.id, "Activating organization");
+      let organizationId: string;
+      try {
+        const organization = await withTimeout(
+          createOrganization({ name: orgName }),
+          12_000,
+          "Creating organization",
+        );
+        organizationId = organization.id;
+      } catch (createErr) {
+        // Create may have succeeded server-side while the client list is stale
+        // (or a retry hits a duplicate). Load memberships and activate a match.
+        const page = await clerk.user?.getOrganizationMemberships();
+        const existing = page?.data.find(
+          (membership) =>
+            membership.organization.name.trim().toLowerCase() ===
+            orgName.toLowerCase(),
+        );
+        if (!existing) throw createErr;
+        organizationId = existing.organization.id;
+      }
+
+      await activateOrganization(organizationId, "Activating organization");
     } catch (err) {
       setError(clerkErrorMessage(err));
     } finally {

@@ -4,14 +4,20 @@ import {
   ClerkLoading,
   SignedIn,
   SignedOut,
+  useOrganization,
   useOrganizationList,
   useSession,
 } from "@clerk/clerk-react";
 import { ConvexUserSync } from "@/components/ConvexUserSync";
+import { ClearStorageOnSignOut } from "@/components/ClearStorageOnSignOut";
 import { AppShell } from "@/components/jarbas/app-shell";
 import { AuthGate } from "@/components/jarbas/auth-gate";
 import { OnboardingFlow } from "@/components/jarbas/onboarding-flow";
 import { OrgGate } from "@/components/jarbas/org-gate";
+import {
+  isSsoCallbackPath,
+  SsoCallback,
+} from "@/components/jarbas/sso-callback";
 import { api } from "@convex/_generated/api";
 
 function GateLoading() {
@@ -24,6 +30,7 @@ function GateLoading() {
 
 function SignedInGate() {
   const { session } = useSession();
+  const { organization, isLoaded: orgLoaded } = useOrganization();
   const me = useQuery(api.user.me);
   const completeOnboarding = useMutation(api.user.completeOnboarding);
   const { isLoaded, userMemberships } = useOrganizationList({
@@ -35,12 +42,14 @@ function SignedInGate() {
   const memberships = userMemberships.data ?? [];
   const needsOrganization = session?.currentTask?.key === "choose-organization";
 
-  if (!isLoaded || userMemberships.isLoading) {
+  if (!isLoaded || !orgLoaded || userMemberships.isLoading) {
     return <GateLoading />;
   }
 
-  // Pending choose-organization task, or no membership yet → pick invite / org / create.
-  if (needsOrganization || memberships.length === 0) {
+  // Active org is already selected (create/setActive succeeded) even if the
+  // memberships list is still stale — don't trap the user on OrgGate.
+  const hasActiveOrganization = Boolean(organization);
+  if (!hasActiveOrganization && (needsOrganization || memberships.length === 0)) {
     return <OrgGate />;
   }
 
@@ -64,6 +73,19 @@ function SignedInGate() {
 }
 
 function App() {
+  if (isSsoCallbackPath()) {
+    return (
+      <>
+        <ClerkLoading>
+          <GateLoading />
+        </ClerkLoading>
+        <ClerkLoaded>
+          <SsoCallback />
+        </ClerkLoaded>
+      </>
+    );
+  }
+
   return (
     <>
       <ClerkLoading>
@@ -71,6 +93,7 @@ function App() {
       </ClerkLoading>
 
       <ClerkLoaded>
+        <ClearStorageOnSignOut />
         {/* Pending sessions (e.g. choose-organization) must not look signed-out,
             or Verify succeeds and the UI never leaves AuthGate. */}
         <SignedOut treatPendingAsSignedOut={false}>

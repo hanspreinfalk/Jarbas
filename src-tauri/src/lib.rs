@@ -225,19 +225,67 @@ async fn list_composio_toolkits(
 /// redirect_url (tauri:// is rejected with invalid_url_scheme).
 const PACKAGED_AUTH_PORT: u16 = 1421;
 
-fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
-    use tauri::{WebviewUrl, WebviewWindowBuilder};
-
-    let url = if cfg!(dev) {
-        // Matches tauri.conf.json build.devUrl / Vite.
-        "http://localhost:1420".parse()?
+fn app_web_origin() -> String {
+    if cfg!(dev) {
+        "http://localhost:1420".to_string()
     } else {
-        format!("http://localhost:{PACKAGED_AUTH_PORT}").parse()?
-    };
+        format!("http://localhost:{PACKAGED_AUTH_PORT}")
+    }
+}
 
-    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(url))
+/// Clerk Account Portal dead-ends (not the Frontend API host).
+fn is_clerk_account_portal_dead_end(url: &tauri::Url) -> bool {
+    let host = url.host_str().unwrap_or("");
+    let is_portal = host.ends_with(".accounts.dev") && !host.contains("clerk.accounts.dev");
+    if !is_portal {
+        return false;
+    }
+    matches!(url.path(), "/" | "/default-redirect" | "")
+}
+
+fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
+    use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
+
+    let app_origin = app_web_origin();
+    let bounce_origin = app_origin.clone();
+    let app_handle = app.handle().clone();
+
+    WebviewWindowBuilder::new(app, "main", WebviewUrl::External(app_origin.parse()?))
         .title("Deployment Company of San Francisco")
         .inner_size(1180.0, 780.0)
+        .on_navigation(move |nav_url| {
+            if !is_clerk_account_portal_dead_end(&nav_url) {
+                return true;
+            }
+
+            // OAuth sometimes finishes on Account Portal /default-redirect instead of
+            // our /sso-callback. Bounce back into the app and keep Clerk query params
+            // (__clerk_db_jwt, etc.) so the session can sync.
+            let query = nav_url
+                .query()
+                .map(|q| format!("?{q}"))
+                .unwrap_or_default();
+            let path = if nav_url.query().is_some() {
+                "/sso-callback"
+            } else {
+                "/"
+            };
+            let target = format!("{bounce_origin}{path}{query}");
+            eprintln!("jarbas: bouncing Clerk Account Portal → {target}");
+
+            let handle = app_handle.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_millis(30));
+                if let Some(win) = handle.get_webview_window("main") {
+                    let js = format!(
+                        "window.location.replace({})",
+                        serde_json::to_string(&target).unwrap_or_else(|_| "\"/\"".into())
+                    );
+                    let _ = win.eval(&js);
+                }
+            });
+            false
+        })
         .build()?;
     Ok(())
 }

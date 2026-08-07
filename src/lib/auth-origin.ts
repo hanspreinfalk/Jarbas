@@ -24,6 +24,81 @@ export function getAuthRedirectUrl(path = "/"): string {
   return `${getAuthOrigin()}${normalized}`;
 }
 
+/** Keep theme preference when wiping auth browser storage. */
+const PRESERVE_LOCAL_STORAGE_KEYS = new Set(["theme"]);
+
+/**
+ * Clears Clerk/browser auth state in the webview (localStorage, sessionStorage,
+ * IndexedDB). Call on every sign-out so stale sessions cannot block re-auth.
+ */
+export async function clearLocalAuthStorage(): Promise<void> {
+  if (typeof window === "undefined") return;
+
+  try {
+    const preserved: Array<[string, string]> = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && PRESERVE_LOCAL_STORAGE_KEYS.has(key)) {
+        const value = localStorage.getItem(key);
+        if (value != null) preserved.push([key, value]);
+      }
+    }
+    localStorage.clear();
+    for (const [key, value] of preserved) {
+      localStorage.setItem(key, value);
+    }
+  } catch (err) {
+    console.warn("Failed to clear localStorage", err);
+  }
+
+  try {
+    sessionStorage.clear();
+  } catch (err) {
+    console.warn("Failed to clear sessionStorage", err);
+  }
+
+  try {
+    const databases =
+      typeof indexedDB.databases === "function"
+        ? await indexedDB.databases()
+        : [];
+    await Promise.all(
+      databases.map(
+        (db) =>
+          new Promise<void>((resolve) => {
+            if (!db.name) {
+              resolve();
+              return;
+            }
+            const request = indexedDB.deleteDatabase(db.name);
+            request.onsuccess = () => resolve();
+            request.onerror = () => resolve();
+            request.onblocked = () => resolve();
+          }),
+      ),
+    );
+  } catch (err) {
+    console.warn("Failed to clear IndexedDB", err);
+  }
+}
+
+type ClerkSignOutClient = {
+  signOut: (options?: { redirectUrl?: string }) => Promise<void>;
+};
+
+/** Sign out of Clerk and wipe local auth storage (before and after). */
+export async function signOutAndClearLocalAuth(
+  clerk: ClerkSignOutClient,
+  redirectUrl = getAuthRedirectUrl("/"),
+): Promise<void> {
+  await clearLocalAuthStorage();
+  try {
+    await clerk.signOut({ redirectUrl });
+  } finally {
+    await clearLocalAuthStorage();
+  }
+}
+
 type ClerkErrorItem = {
   code?: string;
   long_message?: string;

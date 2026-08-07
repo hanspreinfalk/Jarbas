@@ -14,6 +14,7 @@ import {
   isAlreadySignedInError,
   isAlreadyVerifiedError,
   isIdentifierNotFoundError,
+  signOutAndClearLocalAuth,
 } from "@/lib/auth-origin";
 import { cn } from "@/lib/utils";
 
@@ -101,6 +102,43 @@ export function AuthGate() {
     setCode("");
     setError(null);
     resetBusy();
+  }
+
+  /**
+   * Sign out leftover client sessions. AuthGate only mounts under SignedOut, so
+   * any remaining signedInSessions are stale (e.g. after wiping Clerk users) and
+   * block new OAuth/email auth with "already signed in".
+   */
+  async function signOutLocalSessions(): Promise<void> {
+    await withTimeout(
+      signOutAndClearLocalAuth(clerk),
+      12_000,
+      "Signing out",
+    );
+  }
+
+  async function recoverFromAlreadySignedIn(): Promise<boolean> {
+    // Only reuse a session if this sign-in/sign-up flow just completed.
+    // Leftover client sessions after a Clerk wipe look "signed in" but have no user.
+    try {
+      if (signUp?.status === "complete" && signUp.createdSessionId) {
+        await activateSession(signUp.createdSessionId);
+        return true;
+      }
+      if (signIn?.status === "complete" && signIn.createdSessionId) {
+        await activateSession(signIn.createdSessionId);
+        return true;
+      }
+    } catch (activateErr) {
+      console.warn("Could not activate existing Clerk session", activateErr);
+    }
+    try {
+      await signOutLocalSessions();
+      setError(null);
+    } catch (clearErr) {
+      setError(clerkErrorMessage(clearErr));
+    }
+    return false;
   }
 
   async function activateSession(sessionId: string | null | undefined) {
@@ -267,21 +305,20 @@ export function AuthGate() {
     setBusy(true);
     setError(null);
     try {
-      const redirectUrl = getAuthRedirectUrl("/");
+      // redirectUrl must be a route that mounts AuthenticateWithRedirectCallback.
+      // Without that handshake, Google succeeds but Clerk never creates a session.
+      const redirectUrl = getAuthRedirectUrl("/sso-callback");
+      const redirectUrlComplete = getAuthRedirectUrl("/");
       await signIn.authenticateWithRedirect({
         strategy: "oauth_google",
         redirectUrl,
-        redirectUrlComplete: redirectUrl,
+        redirectUrlComplete,
       });
     } catch (err) {
       if (isAlreadySignedInError(err)) {
-        try {
-          if (await activateIfComplete()) return;
-        } catch (activateErr) {
-          setError(clerkErrorMessage(activateErr));
-          resetBusy();
-          return;
-        }
+        if (await recoverFromAlreadySignedIn()) return;
+        resetBusy();
+        return;
       }
       setError(clerkErrorMessage(err));
       resetBusy();
@@ -312,7 +349,8 @@ export function AuthGate() {
           await startEmailSignUp(identifier, fullName);
         } catch (err) {
           if (isAlreadySignedInError(err)) {
-            if (await activateIfComplete()) return;
+            if (await recoverFromAlreadySignedIn()) return;
+            return;
           }
           await startEmailSignIn(identifier).catch(() => {
             throw err;
@@ -323,7 +361,8 @@ export function AuthGate() {
           await startEmailSignIn(identifier);
         } catch (err) {
           if (isAlreadySignedInError(err)) {
-            if (await activateIfComplete()) return;
+            if (await recoverFromAlreadySignedIn()) return;
+            return;
           } else if (isIdentifierNotFoundError(err)) {
             if (!fullName.trim()) {
               setMode("sign-up");
@@ -340,12 +379,8 @@ export function AuthGate() {
       setCode("");
     } catch (err) {
       if (isAlreadySignedInError(err)) {
-        try {
-          if (await activateIfComplete()) return;
-        } catch (activateErr) {
-          setError(clerkErrorMessage(activateErr));
-          return;
-        }
+        if (await recoverFromAlreadySignedIn()) return;
+        return;
       }
       setError(clerkErrorMessage(err));
     } finally {

@@ -1,4 +1,4 @@
-import { useAuth, useClerk, useSession, UserButton } from "@clerk/clerk-react";
+import { useAuth, useClerk, useSession } from "@clerk/clerk-react";
 import { LogOut, UserRound } from "lucide-react";
 import { ThemeToggle } from "@/components/jarbas/theme-toggle";
 import { Button } from "@/components/ui/button";
@@ -8,28 +8,21 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { jarbasClerkAppearance } from "@/lib/clerk-appearance";
-import { getAuthRedirectUrl } from "@/lib/auth-origin";
+import { signOutAndClearLocalAuth } from "@/lib/auth-origin";
 
-function userButtonAppearance() {
-  return {
-    ...jarbasClerkAppearance,
-    elements: {
-      ...jarbasClerkAppearance.elements,
-      rootBox: "flex! items-center!",
-      userButtonBox: "flex! items-center!",
-      userButtonTrigger: "rounded-none! focus:shadow-none! focus:ring-0!",
-      userButtonAvatarBox: "size-7! rounded-none!",
-    },
-  };
-}
-
-function PendingGateUserButton() {
+function GateUserButton() {
+  // Pending sessions (choose-organization right after sign-up) must count as
+  // signed-in, or the profile control disappears on OrgGate.
   const clerk = useClerk();
+  const { isLoaded, userId } = useAuth({ treatPendingAsSignedOut: false });
   const { session } = useSession();
+
+  if (!isLoaded || !userId) return null;
+
   const user = session?.user;
   const imageUrl = user?.imageUrl;
-  const label = user?.fullName || user?.primaryEmailAddress?.emailAddress || "Account";
+  const label =
+    user?.fullName || user?.primaryEmailAddress?.emailAddress || "Account";
 
   return (
     <DropdownMenu>
@@ -68,7 +61,7 @@ function PendingGateUserButton() {
         <DropdownMenuItem
           className="rounded-none"
           onClick={() => {
-            void clerk.signOut({ redirectUrl: getAuthRedirectUrl("/") });
+            void signOutAndClearLocalAuth(clerk);
           }}
         >
           <LogOut className="size-3.5" />
@@ -76,28 +69,6 @@ function PendingGateUserButton() {
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-function GateUserButton() {
-  // Pending sessions (choose-organization right after sign-up) must count as
-  // signed-in, or the profile control disappears on OrgGate.
-  const { isLoaded, userId } = useAuth({ treatPendingAsSignedOut: false });
-  const { session } = useSession();
-
-  if (!isLoaded || !userId) return null;
-
-  // Clerk's UserButton can hide itself while the session task is pending.
-  if (session?.status === "pending") {
-    return <PendingGateUserButton />;
-  }
-
-  return (
-    <UserButton
-      userProfileMode="modal"
-      afterSignOutUrl={getAuthRedirectUrl("/")}
-      appearance={userButtonAppearance()}
-    />
   );
 }
 
