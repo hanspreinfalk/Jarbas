@@ -5,7 +5,7 @@ export function BillingPage() {
     <div className="animate-rise mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
       <p className="label-caps text-muted-foreground">Jarbas</p>
       <h1 className="mt-1 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
-        Pricing / Billing
+        Pricing
       </h1>
       <p className="mt-3 max-w-2xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
         One platform. Three ways to use it: start alone, coordinate a team, or

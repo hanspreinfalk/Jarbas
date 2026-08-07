@@ -46,7 +46,7 @@ export const APP_PAGE_LABELS: Record<AppTabId, string> = {
   agents: "Agents",
   observability: "Observability",
   settings: "Settings",
-  billing: "Pricing / Billing",
+  billing: "Pricing",
   redactions: "Redactions",
   "multi-team-analysis": "Team analysis",
 };
@@ -105,7 +105,7 @@ export const APP_TABS: AppTab[] = [
   },
   {
     id: "billing",
-    label: "Pricing / Billing",
+    label: "Pricing",
     icon: CreditCard,
   },
 ];
