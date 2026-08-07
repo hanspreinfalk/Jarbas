@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Mutex;
 use std::thread;
@@ -68,6 +68,8 @@ pub struct AskChatState {
     next_id: AtomicU64,
     /// Signed-in Composio user id for the next / current Pi process.
     composio_user_id: Mutex<Option<String>>,
+    /// When true, the next process-exit error is from an intentional restart.
+    suppress_next_exit_error: AtomicBool,
 }
 
 impl Default for AskChatState {
@@ -77,6 +79,7 @@ impl Default for AskChatState {
             pending: Mutex::new(HashMap::new()),
             next_id: AtomicU64::new(1),
             composio_user_id: Mutex::new(None),
+            suppress_next_exit_error: AtomicBool::new(false),
         }
     }
 }
@@ -289,6 +292,9 @@ fn handle_stdout_line(app: &AppHandle, state: &AskChatState, line: &str) {
 fn stop_process(state: &AskChatState) {
     let mut guard = state.process.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(mut proc) = guard.take() {
+        state
+            .suppress_next_exit_error
+            .store(true, Ordering::SeqCst);
         let _ = writeln!(proc.stdin, "{}", json!({"type":"abort"}));
         let _ = proc.stdin.flush();
         let _ = proc.child.kill();
@@ -451,13 +457,20 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
             let ask_state = app_reader.state::<AskChatState>();
             handle_stdout_line(&app_reader, &ask_state, &buffer);
         }
+        let ask_state = app_reader.state::<AskChatState>();
+        let intentional_restart = ask_state
+            .suppress_next_exit_error
+            .swap(false, Ordering::SeqCst);
+        if intentional_restart {
+            // A replacement process may already occupy the slot — leave it alone.
+            return;
+        }
         emit_ask(
             &app_reader,
             AskEvent::Error {
                 message: "Assistant process stopped.".into(),
             },
         );
-        let ask_state = app_reader.state::<AskChatState>();
         let mut guard = ask_state.process.lock().unwrap_or_else(|p| p.into_inner());
         *guard = None;
     });
@@ -561,58 +574,62 @@ fn send_command(
 }
 
 #[tauri::command]
-pub fn ask_send_prompt(
+pub async fn ask_send_prompt(
     app: AppHandle,
     message: String,
     time_zone: Option<String>,
     local_time: Option<String>,
     composio_user_id: Option<String>,
 ) -> Result<(), String> {
-    let trimmed = message.trim().to_string();
-    if trimmed.is_empty() {
-        return Err("Message is empty.".into());
-    }
+    tauri::async_runtime::spawn_blocking(move || {
+        let trimmed = message.trim().to_string();
+        if trimmed.is_empty() {
+            return Err("Message is empty.".into());
+        }
 
-    let state = app.state::<AskChatState>();
-    {
-        let mut guard = state
-            .composio_user_id
-            .lock()
-            .unwrap_or_else(|p| p.into_inner());
-        *guard = composio_user_id
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty());
-    }
+        let state = app.state::<AskChatState>();
+        {
+            let mut guard = state
+                .composio_user_id
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            *guard = composio_user_id
+                .map(|value| value.trim().to_string())
+                .filter(|value| !value.is_empty());
+        }
 
-    let prompt = match (
-        time_zone
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-        local_time
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty()),
-    ) {
-        (Some(tz), Some(local)) => format!(
-            "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
-        ),
-        (Some(tz), None) => format!(
-            "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
-        ),
-        _ => trimmed,
-    };
+        let prompt = match (
+            time_zone
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+            local_time
+                .as_deref()
+                .map(str::trim)
+                .filter(|value| !value.is_empty()),
+        ) {
+            (Some(tz), Some(local)) => format!(
+                "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
+            ),
+            (Some(tz), None) => format!(
+                "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
+            ),
+            _ => trimmed,
+        };
 
-    ensure_process(&app, &state)?;
-    send_command(
-        &state,
-        json!({
-            "type": "prompt",
-            "message": prompt,
-        }),
-        Duration::from_secs(30),
-    )?;
-    Ok(())
+        ensure_process(&app, &state)?;
+        send_command(
+            &state,
+            json!({
+                "type": "prompt",
+                "message": prompt,
+            }),
+            Duration::from_secs(30),
+        )?;
+        Ok(())
+    })
+    .await
+    .map_err(|error| format!("Ask send worker failed: {error}"))?
 }
 
 #[tauri::command]

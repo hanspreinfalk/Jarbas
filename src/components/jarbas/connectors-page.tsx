@@ -3,6 +3,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ExternalLink,
+  Loader2,
   Plus,
   Search,
   Settings2,
@@ -218,6 +219,8 @@ export function ConnectorsPage() {
   const [accounts, setAccounts] = useState<ComposioConnectedAccount[]>([]);
   const [connectedLoading, setConnectedLoading] = useState(true);
   const [actionBusy, setActionBusy] = useState(false);
+  const [connectingToolkit, setConnectingToolkit] =
+    useState<ComposioToolkit | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [managingSlug, setManagingSlug] = useState<string | null>(null);
   const [page, setPage] = useState(1);
@@ -368,7 +371,7 @@ export function ConnectorsPage() {
       return;
     }
 
-    setActionBusy(true);
+    setConnectingToolkit(toolkit);
     setActionError(null);
     try {
       await ensureComposioUserId();
@@ -385,7 +388,7 @@ export function ConnectorsPage() {
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
     } finally {
-      setActionBusy(false);
+      setConnectingToolkit(null);
     }
   }
 
@@ -427,6 +430,7 @@ export function ConnectorsPage() {
     (sum, item) => sum + item.accounts.length,
     0,
   );
+  const controlsBusy = actionBusy || connectingToolkit !== null;
 
   return (
     <div className="animate-rise mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -437,7 +441,8 @@ export function ConnectorsPage() {
             Connectors
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-            Connect the tools you already use.
+            Connect the tools you already use. Connections request read-only
+            access — Jarbas can view your data, not change it.
           </p>
         </div>
         <p className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -522,11 +527,15 @@ export function ConnectorsPage() {
                     variant="outline"
                     size="sm"
                     className="rounded-none"
-                    disabled={actionBusy}
+                    disabled={controlsBusy}
                     onClick={() => void startConnect(connection.toolkit)}
                     title="Add account"
                   >
-                    <Plus className="size-3.5" />
+                    {connectingToolkit?.slug === connection.toolkit.slug ? (
+                      <Loader2 className="size-3.5 animate-spin" />
+                    ) : (
+                      <Plus className="size-3.5" />
+                    )}
                   </Button>
                 </div>
               </article>
@@ -617,11 +626,17 @@ export function ConnectorsPage() {
                             variant="outline"
                             size="sm"
                             className="w-full rounded-none"
-                            disabled={actionBusy || toolkit.no_auth}
+                            disabled={controlsBusy || toolkit.no_auth}
                             onClick={() => void startConnect(toolkit)}
                           >
-                            <ExternalLink className="size-3.5" />
-                            {actionBusy ? "Opening…" : "Connect"}
+                            {connectingToolkit?.slug === toolkit.slug ? (
+                              <Loader2 className="size-3.5 animate-spin" />
+                            ) : (
+                              <ExternalLink className="size-3.5" />
+                            )}
+                            {connectingToolkit?.slug === toolkit.slug
+                              ? "Preparing…"
+                              : "Connect"}
                           </Button>
                         )}
                       </article>
@@ -666,10 +681,41 @@ export function ConnectorsPage() {
         </>
       )}
 
+      <Dialog
+        open={Boolean(connectingToolkit)}
+        onOpenChange={() => {
+          // Block dismiss while preparing the connect link.
+        }}
+      >
+        <DialogContent
+          className="rounded-none sm:max-w-md"
+          showCloseButton={false}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              Connecting {connectingToolkit?.name ?? "app"}
+            </DialogTitle>
+            <DialogDescription>
+              Preparing a read-only connection. The first connect for an app can
+              take a few seconds.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex items-center gap-3 border border-border bg-muted/40 px-3 py-3 text-sm text-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+            <div className="min-w-0">
+              <p className="font-medium">Working…</p>
+              <p className="mt-0.5 text-muted-foreground">
+                Setting up permissions, then opening sign-in in your browser.
+              </p>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
       <ManageAccountsDialog
-        open={Boolean(managing)}
+        open={Boolean(managing) && !connectingToolkit}
         connection={managing}
-        busy={actionBusy}
+        busy={controlsBusy}
         onOpenChange={(open) => {
           if (!open) setManagingSlug(null);
         }}

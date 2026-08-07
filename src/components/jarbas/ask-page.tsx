@@ -7,11 +7,13 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
+import { flushSync } from "react-dom";
 import {
   ArrowUp,
   Check,
   ChevronDown,
   Copy,
+  Loader2,
   Square,
 } from "lucide-react";
 import { useUser } from "@clerk/clerk-react";
@@ -524,21 +526,24 @@ function WorkedForDetails({
       <div className="min-w-0">
         {hasTools ? (
           <div>
-            <button
-              type="button"
-              onClick={() => setOpen((current) => !current)}
-              className="group inline-flex max-w-full items-center gap-1.5 text-[13px] text-muted-foreground transition-colors hover:text-foreground"
-            >
-              <span>
-                {open ? "Hide technical details" : "Show technical details"}
-              </span>
-              <ChevronDown
-                className={cn(
-                  "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
-                  open && "rotate-180",
-                )}
-              />
-            </button>
+            <div className="flex max-w-full items-center gap-2 text-[13px] text-muted-foreground">
+              <button
+                type="button"
+                onClick={() => setOpen((current) => !current)}
+                className="group inline-flex min-w-0 items-center gap-1.5 transition-colors hover:text-foreground"
+              >
+                <span>
+                  {open ? "Hide technical details" : "Show technical details"}
+                </span>
+                <ChevronDown
+                  className={cn(
+                    "size-3.5 shrink-0 text-muted-foreground/50 transition-transform",
+                    open && "rotate-180",
+                  )}
+                />
+              </button>
+              <span className="shrink-0 tabular-nums">{durationLabel}</span>
+            </div>
             {open ? (
               <div className="mt-1.5">
                 <p className="mb-1 truncate text-[13px] text-muted-foreground/70 tabular-nums">
@@ -555,9 +560,11 @@ function WorkedForDetails({
         ) : null}
         <p className={cn("text-sm text-foreground", hasTools && "mt-1.5")}>
           <span className="animate-thinking font-medium">Thinking…</span>
-          <span className="ml-1.5 text-[13px] text-muted-foreground tabular-nums">
-            {durationLabel}
-          </span>
+          {!hasTools ? (
+            <span className="ml-1.5 text-[13px] text-muted-foreground tabular-nums">
+              {durationLabel}
+            </span>
+          ) : null}
         </p>
       </div>
     );
@@ -596,6 +603,7 @@ function WorkedForDetails({
 function Composer({
   draft,
   sending,
+  showStop,
   inputRef,
   llmSettings,
   onDraftChange,
@@ -607,6 +615,7 @@ function Composer({
 }: {
   draft: string;
   sending: boolean;
+  showStop: boolean;
   inputRef: RefObject<HTMLTextAreaElement | null>;
   llmSettings: LlmSettings | null;
   onDraftChange: (value: string) => void;
@@ -641,7 +650,7 @@ function Composer({
             disabled={sending}
             onSelect={onModelSelect}
           />
-          {sending ? (
+          {sending && showStop ? (
             <Button
               type="button"
               size="icon"
@@ -651,6 +660,17 @@ function Composer({
               onClick={onStop}
             >
               <Square className="size-3 fill-current" />
+            </Button>
+          ) : sending ? (
+            <Button
+              type="button"
+              size="icon"
+              variant="outline"
+              className="size-8 rounded-none"
+              aria-label="Sending"
+              disabled
+            >
+              <Loader2 className="size-4 animate-spin" />
             </Button>
           ) : (
             <Button
@@ -837,6 +857,12 @@ export function AskPage() {
         }));
         break;
       case "error":
+        // Intentional agent restarts emit this; ignore so the send UI stays live.
+        if (
+          event.message.toLowerCase().includes("assistant process stopped")
+        ) {
+          break;
+        }
         setStreamError(event.message);
         patchAssistant((message) => {
           const finishedAt = Date.now();
@@ -850,10 +876,7 @@ export function AskPage() {
             finishedAt,
           };
         });
-        if (
-          event.message.toLowerCase().includes("stopped") ||
-          event.message.toLowerCase().includes("timed out")
-        ) {
+        if (event.message.toLowerCase().includes("timed out")) {
           finishAssistant();
         }
         break;
@@ -964,12 +987,23 @@ export function AskPage() {
     };
 
     assistantIdRef.current = assistantId;
+
+    // Commit the send-button loader now, then yield so the browser can paint
+    // before we switch layouts / start the (slow) agent.
+    flushSync(() => {
+      setDraft("");
+      setSending(true);
+      setStreamError(null);
+    });
+    await new Promise<void>((resolve) => {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => resolve());
+      });
+    });
+
     setMessages((current) => [...current, userMessage, assistantMessage]);
     setPinnedUserId(userMessage.id);
     pinScrollRef.current = true;
-    setDraft("");
-    setSending(true);
-    setStreamError(null);
 
     try {
       await askSendPrompt(trimmed, { composioUserId });
@@ -1084,6 +1118,7 @@ export function AskPage() {
             <Composer
               draft={draft}
               sending={sending}
+              showStop={false}
               inputRef={inputRef}
               llmSettings={llmSettings}
               onDraftChange={setDraft}
@@ -1193,6 +1228,7 @@ export function AskPage() {
           <Composer
             draft={draft}
             sending={sending}
+            showStop
             inputRef={inputRef}
             llmSettings={llmSettings}
             onDraftChange={setDraft}

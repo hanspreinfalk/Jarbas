@@ -144,45 +144,362 @@ pub async fn list_composio_connected_accounts(
     Ok(ConnectedAccountsResponse { items })
 }
 
-async fn resolve_auth_config_id(client: &Client, api_key: &str, toolkit_slug: &str) -> Result<String, String> {
-    let response = client
-        .get("https://backend.composio.dev/api/v3/auth_configs")
-        .header("x-api-key", api_key)
-        .query(&[
-            ("toolkit_slug", toolkit_slug),
-            ("limit", "10"),
-        ])
-        .send()
-        .await
-        .map_err(|error| error.to_string())?;
+const READ_ONLY_AUTH_CONFIG_NAME: &str = "Jarbas read-only";
+const READ_ONLY_TOOL_TAG: &str = "readOnlyHint";
 
-    let status = response.status();
-    let body = response.text().await.map_err(|error| error.to_string())?;
-    if !status.is_success() {
-        return Err(format!("Composio API error ({status}): {body}"));
+fn scope_score(scope: &str) -> i32 {
+    let lower = scope.to_ascii_lowercase();
+    let mut score = 0i32;
+
+    if lower.contains("readonly") || lower.contains("read_only") {
+        score += 120;
+    }
+    if lower == "read"
+        || lower.starts_with("read:")
+        || lower.starts_with("read_")
+        || lower.ends_with(":read")
+        || lower.ends_with(".read")
+        || lower.contains(":read.")
+        || lower.contains(".read.")
+    {
+        score += 100;
+    }
+    if lower.contains(":history") || lower.ends_with(".history") {
+        score += 90;
+    }
+    if lower.contains("freebusy") {
+        score += 70;
+    }
+    if lower.contains("read") {
+        score += 30;
     }
 
-    let payload: Value = serde_json::from_str(&body).map_err(|error| error.to_string())?;
-    let items = payload
+    if lower.contains("write")
+        || lower.contains("modify")
+        || lower.contains("compose")
+        || lower.contains("delete")
+        || lower.contains("insert")
+        || lower.contains("create")
+        || lower.contains("manage")
+        || lower.contains("admin")
+        || matches!(
+            lower.as_str(),
+            "repo"
+                | "gist"
+                | "workflow"
+                | "user"
+                | "project"
+                | "codespace"
+                | "notifications"
+                | "public_repo"
+                | "security_events"
+                | "repo_deployment"
+                | "insert_content"
+        )
+    {
+        score -= 150;
+    }
+
+    if matches!(
+        lower.as_str(),
+        "https://mail.google.com/"
+            | "https://www.googleapis.com/auth/calendar"
+            | "https://www.googleapis.com/auth/contacts"
+            | "https://www.googleapis.com/auth/gmail.labels"
+            | "https://www.googleapis.com/auth/gmail.settings.basic"
+            | "https://www.googleapis.com/auth/gmail.settings.sharing"
+    ) {
+        score -= 150;
+    }
+
+    score
+}
+
+fn pick_read_scope(scopes: &[String]) -> Option<String> {
+    scopes
+        .iter()
+        .map(|scope| (scope, scope_score(scope)))
+        .max_by_key(|(_, score)| *score)
+        .filter(|(_, score)| *score > 0)
+        .map(|(scope, _)| scope.clone())
+}
+
+fn collect_read_scopes(per_tool: &[Value], tools_by_slug: &std::collections::HashMap<String, Value>) -> Vec<String> {
+    let mut chosen = std::collections::BTreeSet::new();
+
+    for entry in per_tool {
+        let tool_slug = entry
+            .get("tool")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        let Some(requirements) = entry.get("scope_requirements") else {
+            if let Some(tool) = tools_by_slug.get(tool_slug) {
+                if let Some(scopes) = tool.get("scopes").and_then(Value::as_array) {
+                    for scope in scopes.iter().filter_map(Value::as_str) {
+                        if scope_score(scope) > 0 {
+                            chosen.insert(scope.to_string());
+                        }
+                    }
+                }
+            }
+            continue;
+        };
+
+        if requirements.is_null() {
+            if let Some(tool) = tools_by_slug.get(tool_slug) {
+                if let Some(scopes) = tool.get("scopes").and_then(Value::as_array) {
+                    for scope in scopes.iter().filter_map(Value::as_str) {
+                        if scope_score(scope) > 0 {
+                            chosen.insert(scope.to_string());
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+
+        if let Some(all_of) = requirements.get("all_of").and_then(Value::as_array) {
+            for group in all_of {
+                if let Some(any_of) = group.get("any_of").and_then(Value::as_array) {
+                    let options: Vec<String> = any_of
+                        .iter()
+                        .filter_map(Value::as_str)
+                        .map(str::to_string)
+                        .collect();
+                    if let Some(pick) = pick_read_scope(&options) {
+                        chosen.insert(pick);
+                    }
+                } else if let Some(scope) = group.as_str() {
+                    if scope_score(scope) > 0 {
+                        chosen.insert(scope.to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    chosen.into_iter().collect()
+}
+
+async fn composio_json(
+    client: &Client,
+    method: reqwest::Method,
+    url: &str,
+    api_key: &str,
+    body: Option<Value>,
+) -> Result<Value, String> {
+    let mut request = client
+        .request(method, url)
+        .header("x-api-key", api_key);
+    if let Some(body) = body {
+        request = request.json(&body);
+    }
+    let response = request.send().await.map_err(|error| error.to_string())?;
+    let status = response.status();
+    let text = response.text().await.map_err(|error| error.to_string())?;
+    if !status.is_success() {
+        return Err(format!("Composio API error ({status}): {text}"));
+    }
+    if text.trim().is_empty() {
+        return Ok(Value::Null);
+    }
+    serde_json::from_str(&text).map_err(|error| error.to_string())
+}
+
+async fn list_toolkit_tools(
+    client: &Client,
+    api_key: &str,
+    toolkit_slug: &str,
+) -> Result<Vec<Value>, String> {
+    let mut items = Vec::new();
+    let mut cursor: Option<String> = None;
+
+    loop {
+        let mut request = client
+            .get("https://backend.composio.dev/api/v3.1/tools")
+            .header("x-api-key", api_key)
+            .query(&[("toolkit_slug", toolkit_slug), ("limit", "100")]);
+        if let Some(cursor) = cursor.as_ref() {
+            request = request.query(&[("cursor", cursor.as_str())]);
+        }
+
+        let response = request.send().await.map_err(|error| error.to_string())?;
+        let status = response.status();
+        let body = response.text().await.map_err(|error| error.to_string())?;
+        if !status.is_success() {
+            return Err(format!("Composio API error ({status}): {body}"));
+        }
+
+        let payload: Value = serde_json::from_str(&body).map_err(|error| error.to_string())?;
+        if let Some(page) = payload.get("items").and_then(Value::as_array) {
+            items.extend(page.iter().cloned());
+        }
+
+        cursor = payload
+            .get("next_cursor")
+            .and_then(Value::as_str)
+            .map(str::to_string)
+            .filter(|value| !value.is_empty());
+        if cursor.is_none() {
+            break;
+        }
+    }
+
+    Ok(items)
+}
+
+async fn list_readonly_tool_slugs(
+    client: &Client,
+    api_key: &str,
+    toolkit_slug: &str,
+) -> Result<(Vec<String>, std::collections::HashMap<String, Value>), String> {
+    let tools = list_toolkit_tools(client, api_key, toolkit_slug).await?;
+    let mut by_slug = std::collections::HashMap::new();
+    let mut read_slugs = Vec::new();
+
+    for tool in tools {
+        let Some(slug) = tool.get("slug").and_then(Value::as_str).map(str::to_string) else {
+            continue;
+        };
+        let is_read = tool
+            .get("tags")
+            .and_then(Value::as_array)
+            .map(|tags| {
+                tags.iter()
+                    .filter_map(Value::as_str)
+                    .any(|tag| tag == READ_ONLY_TOOL_TAG)
+            })
+            .unwrap_or(false);
+        if is_read {
+            read_slugs.push(slug.clone());
+        }
+        by_slug.insert(slug, tool);
+    }
+
+    Ok((read_slugs, by_slug))
+}
+
+async fn compute_readonly_scopes(
+    client: &Client,
+    api_key: &str,
+    tool_slugs: &[String],
+    tools_by_slug: &std::collections::HashMap<String, Value>,
+) -> Result<Vec<String>, String> {
+    if tool_slugs.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut per_tool = Vec::new();
+    for chunk in tool_slugs.chunks(80) {
+        let payload = composio_json(
+            client,
+            reqwest::Method::POST,
+            "https://backend.composio.dev/api/v3.1/tools/scopes/required",
+            api_key,
+            Some(json!({ "tools": chunk })),
+        )
+        .await?;
+        if let Some(items) = payload
+            .get("per_tool_requirements")
+            .and_then(Value::as_array)
+        {
+            per_tool.extend(items.iter().cloned());
+        }
+    }
+
+    Ok(collect_read_scopes(&per_tool, tools_by_slug))
+}
+
+async fn list_auth_configs_for_toolkit(
+    client: &Client,
+    api_key: &str,
+    toolkit_slug: &str,
+) -> Result<Vec<Value>, String> {
+    let payload = composio_json(
+        client,
+        reqwest::Method::GET,
+        &format!(
+            "https://backend.composio.dev/api/v3.1/auth_configs?toolkit_slug={toolkit_slug}&limit=50"
+        ),
+        api_key,
+        None,
+    )
+    .await?;
+
+    Ok(payload
         .get("items")
         .and_then(Value::as_array)
         .cloned()
-        .unwrap_or_default();
+        .unwrap_or_default())
+}
 
-    let enabled = items.iter().find(|item| {
-        item.get("status")
+async fn ensure_readonly_auth_config(
+    client: &Client,
+    api_key: &str,
+    toolkit_slug: &str,
+) -> Result<String, String> {
+    let (read_slugs, tools_by_slug) =
+        list_readonly_tool_slugs(client, api_key, toolkit_slug).await?;
+    let scopes = compute_readonly_scopes(client, api_key, &read_slugs, &tools_by_slug).await?;
+
+    let existing = list_auth_configs_for_toolkit(client, api_key, toolkit_slug).await?;
+    let readonly_existing = existing.iter().find(|item| {
+        item.get("name")
             .and_then(Value::as_str)
-            .map(|status| status.eq_ignore_ascii_case("ENABLED"))
-            .unwrap_or(true)
+            .map(|name| name.eq_ignore_ascii_case(READ_ONLY_AUTH_CONFIG_NAME))
+            .unwrap_or(false)
     });
 
-    enabled
-        .or_else(|| items.first())
-        .and_then(|item| item.get("id").and_then(Value::as_str))
-        .map(str::to_string)
-        .ok_or_else(|| {
-            format!("No auth config found for toolkit '{toolkit_slug}'. Enable it in Composio first.")
-        })
+    let auth_config_id = if let Some(item) = readonly_existing {
+        item.get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Composio auth config missing id".to_string())?
+            .to_string()
+    } else {
+        let created = composio_json(
+            client,
+            reqwest::Method::POST,
+            "https://backend.composio.dev/api/v3.1/auth_configs",
+            api_key,
+            Some(json!({
+                "toolkit": { "slug": toolkit_slug },
+                "auth_config": {
+                    "type": "use_composio_managed_auth",
+                    "name": READ_ONLY_AUTH_CONFIG_NAME,
+                }
+            })),
+        )
+        .await?;
+
+        created
+            .pointer("/auth_config/id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| "Composio create auth config missing id".to_string())?
+            .to_string()
+    };
+
+    let mut patch = json!({
+        "type": "default",
+        "name": READ_ONLY_AUTH_CONFIG_NAME,
+        "tool_access_config": {
+            "tools_available_for_execution": read_slugs,
+        }
+    });
+
+    if !scopes.is_empty() {
+        patch["scopes"] = Value::Array(scopes.into_iter().map(Value::String).collect());
+    }
+
+    composio_json(
+        client,
+        reqwest::Method::PATCH,
+        &format!("https://backend.composio.dev/api/v3.1/auth_configs/{auth_config_id}"),
+        api_key,
+        Some(patch),
+    )
+    .await?;
+
+    Ok(auth_config_id)
 }
 
 #[tauri::command]
@@ -192,7 +509,8 @@ pub async fn create_composio_connect_link(
 ) -> Result<ConnectLinkResponse, String> {
     let api_key = composio_api_key()?;
     let client = Client::new();
-    let auth_config_id = resolve_auth_config_id(&client, &api_key, &toolkit_slug).await?;
+    let auth_config_id =
+        ensure_readonly_auth_config(&client, &api_key, &toolkit_slug).await?;
 
     let response = client
         .post("https://backend.composio.dev/api/v3/connected_accounts/link")
@@ -263,6 +581,7 @@ pub struct ToolRouterSession {
 }
 
 /// Create a Tool Router session for the signed-in Jarbas user (project API key + user id).
+/// Sessions are limited to read-only tools (`readOnlyHint`).
 pub async fn create_tool_router_session(user_id: &str) -> Result<ToolRouterSession, String> {
     let trimmed = user_id.trim();
     if trimmed.is_empty() {
@@ -271,17 +590,78 @@ pub async fn create_tool_router_session(user_id: &str) -> Result<ToolRouterSessi
 
     let api_key = composio_api_key()?;
     let client = Client::new();
+
+    // Prefer Jarbas read-only auth configs when the session prompts a connect.
+    let mut auth_configs = serde_json::Map::new();
+    let mut cursor: Option<String> = None;
+    loop {
+        let mut request = client
+            .get("https://backend.composio.dev/api/v3.1/auth_configs")
+            .header("x-api-key", &api_key)
+            .query(&[("limit", "100")]);
+        if let Some(cursor) = cursor.as_ref() {
+            request = request.query(&[("cursor", cursor.as_str())]);
+        }
+        let response = request.send().await.map_err(|error| error.to_string())?;
+        let status = response.status();
+        let body = response.text().await.map_err(|error| error.to_string())?;
+        if status.is_success() {
+            if let Ok(payload) = serde_json::from_str::<Value>(&body) {
+                if let Some(items) = payload.get("items").and_then(Value::as_array) {
+                    for item in items {
+                        let is_readonly = item
+                            .get("name")
+                            .and_then(Value::as_str)
+                            .map(|name| name.eq_ignore_ascii_case(READ_ONLY_AUTH_CONFIG_NAME))
+                            .unwrap_or(false);
+                        if !is_readonly {
+                            continue;
+                        }
+                        let Some(toolkit) = item
+                            .pointer("/toolkit/slug")
+                            .and_then(Value::as_str)
+                        else {
+                            continue;
+                        };
+                        let Some(id) = item.get("id").and_then(Value::as_str) else {
+                            continue;
+                        };
+                        auth_configs.insert(toolkit.to_string(), Value::String(id.to_string()));
+                    }
+                }
+                cursor = payload
+                    .get("next_cursor")
+                    .and_then(Value::as_str)
+                    .map(str::to_string)
+                    .filter(|value| !value.is_empty());
+            } else {
+                cursor = None;
+            }
+        } else {
+            cursor = None;
+        }
+        if cursor.is_none() {
+            break;
+        }
+    }
+
+    let mut session_body = json!({
+        "user_id": trimmed,
+        "tags": [READ_ONLY_TOOL_TAG],
+        "manage_connections": {
+            "enable": true,
+            "enable_wait_for_connections": false,
+            "enable_connection_removal": true
+        }
+    });
+    if !auth_configs.is_empty() {
+        session_body["auth_configs"] = Value::Object(auth_configs);
+    }
+
     let response = client
         .post("https://backend.composio.dev/api/v3.1/tool_router/session")
         .header("x-api-key", api_key)
-        .json(&json!({
-            "user_id": trimmed,
-            "manage_connections": {
-                "enable": true,
-                "enable_wait_for_connections": false,
-                "enable_connection_removal": true
-            }
-        }))
+        .json(&session_body)
         .send()
         .await
         .map_err(|error| error.to_string())?;

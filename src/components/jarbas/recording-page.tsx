@@ -218,7 +218,7 @@ export function RecordingPage() {
                 className="rounded-none"
               >
                 <Circle className="size-3.5 fill-current" />
-                {busy ? "Starting…" : "Start recording"}
+                {busy ? "Starting…" : "Start learning"}
               </Button>
             ) : (
               <Button
@@ -230,7 +230,7 @@ export function RecordingPage() {
                 className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
               >
                 <Square className="size-3.5 fill-current" />
-                {busy ? "Stopping…" : "End recording"}
+                {busy ? "Stopping…" : "End learning"}
               </Button>
             )}
           </div>
