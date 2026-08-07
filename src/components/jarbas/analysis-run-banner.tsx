@@ -2,7 +2,11 @@ import { Square } from "lucide-react";
 import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { Button } from "@/components/ui/button";
 import type { AppTabId } from "@/lib/app-tabs";
-import { friendlyKindVerb } from "@/lib/friendly-analysis";
+import {
+  friendlyKindReady,
+  friendlyKindVerb,
+  friendlyKindViewLabel,
+} from "@/lib/friendly-analysis";
 import { cn } from "@/lib/utils";
 
 const KIND_TAB: Record<
@@ -22,12 +26,15 @@ export function AnalysisRunBanner({
   activeId: AppTabId;
   onNavigate: (id: AppTabId) => void;
 }) {
-  const { meta, live, stopping, stopRun } = useAnalysisRun();
+  const { meta, live, done, error, stopping, stopRun } = useAnalysisRun();
 
-  if (!live || !meta) return null;
+  if (!meta || error) return null;
 
   const tabId = KIND_TAB[meta.kind];
+  // Hide when the user is already on the destination screen (running or ready).
   if (activeId === tabId) return null;
+
+  const ready = done && !live;
 
   return (
     <div
@@ -36,31 +43,47 @@ export function AnalysisRunBanner({
       )}
     >
       <p className="min-w-0 flex-1 truncate text-sm text-foreground">
-        <span className="animate-thinking font-medium">
-          {friendlyKindVerb(meta.kind)}…
-        </span>
-        <span className="text-muted-foreground"> Still running in the background.</span>
+        {ready ? (
+          <span className="font-medium">{friendlyKindReady(meta.kind)}</span>
+        ) : (
+          <span className="animate-thinking font-medium">
+            {friendlyKindVerb(meta.kind)}…
+          </span>
+        )}
       </p>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="rounded-none"
-        onClick={() => onNavigate(tabId)}
-      >
-        View
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="rounded-none"
-        disabled={stopping}
-        onClick={() => void stopRun()}
-      >
-        <Square className="size-3 fill-current" />
-        {stopping ? "Stopping…" : "Stop"}
-      </Button>
+      {ready ? (
+        <Button
+          type="button"
+          size="sm"
+          className="rounded-none"
+          onClick={() => onNavigate(tabId)}
+        >
+          {friendlyKindViewLabel(meta.kind)}
+        </Button>
+      ) : (
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-none"
+            onClick={() => onNavigate(tabId)}
+          >
+            View
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="rounded-none"
+            disabled={stopping}
+            onClick={() => void stopRun()}
+          >
+            <Square className="size-3 fill-current" />
+            {stopping ? "Stopping…" : "Stop"}
+          </Button>
+        </>
+      )}
     </div>
   );
 }

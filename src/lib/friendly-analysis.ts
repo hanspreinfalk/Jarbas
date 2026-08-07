@@ -118,6 +118,31 @@ export function friendlyKindVerb(kind: AnalysisKind): string {
   }
 }
 
+export function friendlyKindReady(kind: AnalysisKind): string {
+  switch (kind) {
+    case "learnings":
+      return "Patterns ready";
+    case "opportunities":
+      return "Opportunities ready";
+    case "reports":
+      return "Your report is ready";
+    case "team-reports":
+      return "Your team report is ready";
+  }
+}
+
+export function friendlyKindViewLabel(kind: AnalysisKind): string {
+  switch (kind) {
+    case "learnings":
+      return "View patterns";
+    case "opportunities":
+      return "View opportunities";
+    case "reports":
+    case "team-reports":
+      return "View report";
+  }
+}
+
 export function friendlyPromptLabel(
   kind: AnalysisKind,
   rangeLabel: string,

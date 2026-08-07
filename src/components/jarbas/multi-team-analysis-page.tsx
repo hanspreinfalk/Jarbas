@@ -1,15 +1,19 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useAuth, useOrganization } from "@clerk/clerk-react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
   CalendarDays,
   Loader2,
+  MoreHorizontal,
   Network,
+  Pencil,
   Search,
   Sparkles,
+  Trash2,
   Users,
 } from "lucide-react";
+import { DeleteConfirmDialog } from "@/components/jarbas/analysis-item-editor";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { ReportDetailView } from "@/components/jarbas/reports-page";
@@ -20,8 +24,23 @@ import {
   type TeamReportPerson,
 } from "@/components/jarbas/generate-team-report-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { api } from "@convex/_generated/api";
+import type { Id } from "@convex/_generated/dataModel";
 import { startAnalysis } from "@/lib/analysis";
 import { reportOverlapsDateRange } from "@/lib/report-range";
 import { normalizeWorkReport, type WorkReport } from "@/lib/reports";
@@ -65,7 +84,10 @@ export function MultiTeamAnalysisPage() {
     orgId ? { organizationId: orgId } : "skip",
   );
   const createReport = useMutation(api.reports.create);
+  const updateReport = useMutation(api.reports.update);
+  const removeReport = useMutation(api.reports.remove);
   const { meta, startRun, clearRun } = useAnalysisRun();
+  const savingTeamReportRef = useRef(false);
 
   const [view, setView] = useState<View>({ kind: "home" });
   const [starting, setStarting] = useState(false);
@@ -73,6 +95,25 @@ export function MultiTeamAnalysisPage() {
   const [error, setError] = useState<string | null>(null);
   const [peopleQuery, setPeopleQuery] = useState("");
   const [pendingMemberIds, setPendingMemberIds] = useState<string[]>([]);
+  const [renameTarget, setRenameTarget] = useState<TeamWorkReport | null>(null);
+  const [renameTitle, setRenameTitle] = useState("");
+  const [renaming, setRenaming] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<TeamWorkReport | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const pendingReportActionRef = useRef<
+    null | { kind: "rename" | "delete"; report: TeamWorkReport }
+  >(null);
+
+  useEffect(() => {
+    if (!renameTarget) {
+      setRenameTitle("");
+      setRenameError(null);
+      return;
+    }
+    setRenameTitle(renameTarget.title);
+    setRenameError(null);
+  }, [renameTarget]);
 
   const members: MemberRow[] = useMemo(() => {
     const rows = memberships?.data ?? [];
@@ -211,12 +252,80 @@ export function MultiTeamAnalysisPage() {
     }
   }
 
+  async function handleRenameTeamReport() {
+    if (!renameTarget || renaming) return;
+    const title = renameTitle.trim();
+    if (!title) {
+      setRenameError("Title is required.");
+      return;
+    }
+    setRenaming(true);
+    setRenameError(null);
+    try {
+      const next = await updateReport({
+        id: renameTarget.id as Id<"reports">,
+        payload: {
+          ...renameTarget,
+          title,
+          scope: "team",
+        },
+      });
+      const normalized = normalizeTeamWorkReport(
+        next as unknown as Record<string, unknown>,
+      );
+      setView((current) => {
+        if (
+          current.kind === "report" &&
+          isTeamWorkReport(current.report) &&
+          current.report.id === renameTarget.id
+        ) {
+          return { ...current, report: normalized };
+        }
+        return current;
+      });
+      setRenameTarget(null);
+    } catch (err) {
+      setRenameError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  async function handleDeleteTeamReport() {
+    if (!deleteTarget || deleting) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await removeReport({ id: deleteTarget.id as Id<"reports"> });
+      setView((current) => {
+        if (
+          current.kind === "report" &&
+          isTeamWorkReport(current.report) &&
+          current.report.id === deleteTarget.id
+        ) {
+          return current.back.kind === "home"
+            ? { kind: "home" }
+            : current.back;
+        }
+        return current;
+      });
+      setDeleteTarget(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+      setDeleteTarget(null);
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   if (meta?.kind === "team-reports") {
     return (
       <AnalysisRunView
         onErrorBack={() => clearRun()}
         onCompleted={({ items }) => {
           void (async () => {
+            if (savingTeamReportRef.current) return;
+            savingTeamReportRef.current = true;
             try {
               setError(null);
               if (!orgId) {
@@ -250,6 +359,8 @@ export function MultiTeamAnalysisPage() {
               console.error("Failed to save team report", err);
               setError(err instanceof Error ? err.message : String(err));
               clearRun();
+            } finally {
+              savingTeamReportRef.current = false;
             }
           })();
         }}
@@ -511,7 +622,14 @@ export function MultiTeamAnalysisPage() {
               </div>
               <ul className="mt-4 divide-y divide-border border border-border bg-card">
                 {teamReports.map((report, index) => (
-                  <li key={report.id}>
+                  <li
+                    key={report.id}
+                    className={cn(
+                      "group flex items-stretch transition-colors hover:bg-muted",
+                      "animate-rise",
+                    )}
+                    style={{ animationDelay: `${index * 40}ms` }}
+                  >
                     <button
                       type="button"
                       onClick={() =>
@@ -521,11 +639,7 @@ export function MultiTeamAnalysisPage() {
                           back: { kind: "home" },
                         })
                       }
-                      className={cn(
-                        "flex w-full items-start gap-4 px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5",
-                        "animate-rise",
-                      )}
-                      style={{ animationDelay: `${index * 40}ms` }}
+                      className="flex min-w-0 flex-1 items-start gap-4 px-4 py-4 text-left sm:px-5"
                     >
                       <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center border border-border bg-background text-muted-foreground">
                         <Network className="size-4" />
@@ -540,6 +654,66 @@ export function MultiTeamAnalysisPage() {
                         </span>
                       </span>
                     </button>
+                    <div className="flex shrink-0 items-center pr-3 sm:pr-4">
+                      <DropdownMenu
+                        onOpenChangeComplete={(open) => {
+                          if (open) return;
+                          const pending = pendingReportActionRef.current;
+                          pendingReportActionRef.current = null;
+                          if (!pending) return;
+                          if (pending.kind === "rename") {
+                            setRenameTarget(pending.report);
+                          } else {
+                            setDeleteTarget(pending.report);
+                          }
+                        }}
+                      >
+                        <DropdownMenuTrigger
+                          render={
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="size-8 rounded-none text-muted-foreground hover:text-foreground"
+                              aria-label={`Actions for ${report.title}`}
+                            />
+                          }
+                        >
+                          <MoreHorizontal className="size-4" />
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent
+                          align="end"
+                          className="min-w-36 rounded-none"
+                          finalFocus={false}
+                        >
+                          <DropdownMenuItem
+                            className="rounded-none"
+                            onClick={() => {
+                              pendingReportActionRef.current = {
+                                kind: "rename",
+                                report,
+                              };
+                            }}
+                          >
+                            <Pencil className="size-3.5" />
+                            Rename
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            variant="destructive"
+                            className="rounded-none"
+                            onClick={() => {
+                              pendingReportActionRef.current = {
+                                kind: "delete",
+                                report,
+                              };
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -554,6 +728,78 @@ export function MultiTeamAnalysisPage() {
         people={dialogPeople}
         submitting={starting}
         onConfirm={handleGenerateTeamReport}
+      />
+
+      <Dialog
+        open={renameTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !renaming) setRenameTarget(null);
+        }}
+      >
+        <DialogContent className="rounded-none sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Rename report</DialogTitle>
+            <DialogDescription>
+              Update the title for this team report.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="grid gap-2">
+            <label
+              htmlFor="team-report-rename-title"
+              className="label-caps text-muted-foreground"
+            >
+              Title
+            </label>
+            <Input
+              id="team-report-rename-title"
+              value={renameTitle}
+              onChange={(event) => setRenameTitle(event.target.value)}
+              className="rounded-none"
+              autoFocus
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  void handleRenameTeamReport();
+                }
+              }}
+            />
+            {renameError ? (
+              <p className="text-sm text-destructive">{renameError}</p>
+            ) : null}
+          </div>
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              disabled={renaming}
+              onClick={() => setRenameTarget(null)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="rounded-none"
+              disabled={renaming}
+              onClick={() => void handleRenameTeamReport()}
+            >
+              {renaming ? "Saving…" : "Save"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <DeleteConfirmDialog
+        open={deleteTarget !== null}
+        onOpenChange={(open) => {
+          if (!open && !deleting) setDeleteTarget(null);
+        }}
+        title="Delete team report?"
+        description={
+          "This permanently deletes the team report. You cannot undo this."
+        }
+        deleting={deleting}
+        onConfirm={() => void handleDeleteTeamReport()}
       />
     </div>
   );

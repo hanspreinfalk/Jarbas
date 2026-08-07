@@ -294,6 +294,7 @@ pub fn run() {
             pi_analysis::get_analysis_status,
             pi_analysis::start_analysis,
             pi_analysis::abort_analysis,
+            pi_analysis::recover_finished_analysis,
             screenpipe::screenpipe_default_paths,
             screenpipe::screenpipe_permissions,
             screenpipe::screenpipe_start,

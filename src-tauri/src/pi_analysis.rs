@@ -1808,13 +1808,13 @@ pub fn start_analysis(
 }
 
 #[tauri::command]
-pub fn abort_analysis(app: AppHandle) -> Result<(), String> {
+pub fn abort_analysis(app: AppHandle, job_id: Option<String>) -> Result<(), String> {
     let state = app.state::<AnalysisState>();
-    let job_id = {
+    let active_job_id = {
         let guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
         guard.as_ref().map(|job| job.id.clone())
     };
-    if let Some(job_id) = &job_id {
+    if let Some(job_id) = &active_job_id {
         let _ = fs::remove_file(JarbasPaths::analysis_job_file(job_id));
         cleanup_analysis_context(job_id);
     }
@@ -1823,13 +1823,170 @@ pub fn abort_analysis(app: AppHandle) -> Result<(), String> {
         let mut guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
         *guard = None;
     }
-    if let Some(job_id) = job_id {
-        emit(
-            &app,
-            AnalysisEvent::Cancelled {
-                job_id,
-            },
-        );
+    // Prefer the active job id; fall back to the caller's id so a desynced UI can unstick.
+    let emit_id = active_job_id
+        .or_else(|| job_id.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()));
+    if let Some(job_id) = emit_id {
+        emit(&app, AnalysisEvent::Cancelled { job_id });
     }
     Ok(())
+}
+
+/// When the UI thinks a job is still live but the backend already finished
+/// (missed `completed` / `error` event), rebuild the result from the saved transcript.
+#[tauri::command]
+pub fn recover_finished_analysis(job_id: String) -> Result<Value, String> {
+    let job_id = job_id.trim().to_string();
+    if job_id.is_empty() {
+        return Err("jobId is required".into());
+    }
+
+    let path = JarbasPaths::analysis_runs_dir().join(format!("{job_id}.json"));
+    if !path.exists() {
+        return Ok(json!({
+            "running": false,
+            "recovered": false,
+            "error": "No saved analysis transcript found for this run.",
+        }));
+    }
+
+    let raw = fs::read_to_string(&path)
+        .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
+    let transcript: Value = serde_json::from_str(&raw)
+        .map_err(|e| format!("Could not parse analysis transcript: {e}"))?;
+
+    let kind_str = transcript
+        .get("kind")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Transcript missing kind".to_string())?;
+    let kind = AnalysisKind::parse(kind_str)
+        .ok_or_else(|| format!("Unknown kind in transcript: {kind_str}"))?;
+    let start_date = transcript
+        .get("startDate")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let end_date = transcript
+        .get("endDate")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let provider = transcript
+        .get("provider")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let model = transcript
+        .get("model")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let accumulated = transcript
+        .get("content")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let thinking = transcript
+        .get("thinking")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let started_at_ms = transcript
+        .get("startedAt")
+        .and_then(|v| v.as_u64().map(|n| n as u128))
+        .unwrap_or_else(now_millis);
+
+    let mut tools = Vec::new();
+    if let Some(arr) = transcript.get("tools").and_then(|v| v.as_array()) {
+        for tool in arr {
+            tools.push(TranscriptTool {
+                id: tool
+                    .get("id")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                name: tool
+                    .get("name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                label: tool
+                    .get("label")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                args: tool.get("args").cloned().unwrap_or(Value::Null),
+                status: tool
+                    .get("status")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("done")
+                    .to_string(),
+                result: tool
+                    .get("result")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            });
+        }
+    }
+
+    let payload = read_job_file(&job_id)
+        .or_else(|| payload_from_write_tools(&tools))
+        .or_else(|| extract_json_value(&accumulated));
+
+    let job = ActiveJob {
+        id: job_id.clone(),
+        kind,
+        start_date,
+        end_date,
+        provider,
+        model,
+        accumulated,
+        thinking,
+        tools,
+        started_at_ms,
+        settled: true,
+    };
+
+    let Some(payload) = payload else {
+        return Ok(json!({
+            "running": false,
+            "recovered": false,
+            "error": "Analysis finished but no JSON payload was found in the transcript.",
+        }));
+    };
+
+    match persist_payload(&job, payload) {
+        Ok(PersistResult { ids, items }) => Ok(json!({
+            "running": false,
+            "recovered": true,
+            "jobId": job_id,
+            "kind": kind.as_str(),
+            "ids": ids,
+            "items": items,
+        })),
+        Err(message) => Ok(json!({
+            "running": false,
+            "recovered": false,
+            "error": message,
+        })),
+    }
+}
+
+fn payload_from_write_tools(tools: &[TranscriptTool]) -> Option<Value> {
+    for tool in tools.iter().rev() {
+        let name = tool.name.to_ascii_lowercase();
+        if !(name == "write" || name.ends_with("__write") || name.contains("write_file")) {
+            continue;
+        }
+        if let Some(content) = tool.args.get("content").and_then(|v| v.as_str()) {
+            if let Some(value) = extract_json_value(content) {
+                return Some(value);
+            }
+        }
+        if let Some(value) = extract_json_value(&tool.result) {
+            return Some(value);
+        }
+    }
+    None
 }

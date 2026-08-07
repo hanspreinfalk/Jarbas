@@ -1011,6 +1011,7 @@ export function ReportsPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const savingRef = useRef(false);
   const { meta, startRun, clearRun } = useAnalysisRun();
 
   const reports = useMemo(
@@ -1028,6 +1029,8 @@ export function ReportsPage() {
         onErrorBack={() => clearRun()}
         onCompleted={({ items }) => {
           void (async () => {
+            if (savingRef.current) return;
+            savingRef.current = true;
             try {
               setSaveError(null);
               if (!orgId) {
@@ -1049,6 +1052,8 @@ export function ReportsPage() {
                 error instanceof Error ? error.message : String(error),
               );
               clearRun();
+            } finally {
+              savingRef.current = false;
             }
           })();
         }}

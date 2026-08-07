@@ -220,6 +220,29 @@ export const create = mutation({
       rest.scope = "team";
     }
 
+    // Idempotent on analysis jobId so a missed UI completion cannot double-insert.
+    const jobId =
+      typeof rest.jobId === "string"
+        ? rest.jobId.trim()
+        : typeof (rest.analysis as { jobId?: string } | undefined)?.jobId ===
+            "string"
+          ? String((rest.analysis as { jobId: string }).jobId).trim()
+          : "";
+    if (jobId) {
+      const existing = await ctx.db
+        .query("reports")
+        .withIndex("by_org", (q) => q.eq("organizationId", args.organizationId))
+        .collect();
+      const match = existing.find((doc) => {
+        const p = doc.payload as Record<string, unknown> | null;
+        if (!p || typeof p !== "object") return false;
+        if (p.jobId === jobId) return true;
+        const analysis = p.analysis as { jobId?: string } | undefined;
+        return analysis?.jobId === jobId;
+      });
+      if (match) return docToWorkReport(match);
+    }
+
     const reportId = await ctx.db.insert("reports", {
       clerkUserId: identity.subject,
       organizationId: args.organizationId,

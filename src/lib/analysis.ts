@@ -68,6 +68,22 @@ export type AnalysisStatus =
       model: string;
     };
 
+export type RecoverFinishedAnalysisResult =
+  | {
+      running: false;
+      recovered: true;
+      jobId: string;
+      kind: AnalysisKind;
+      ids: string[];
+      items?: unknown[] | null;
+    }
+  | {
+      running: false;
+      recovered: false;
+      error?: string;
+    }
+  | { running: true };
+
 export type StartAnalysisResult = {
   jobId: string;
   kind: AnalysisKind;
@@ -127,6 +143,14 @@ export async function getAnalysisStatus(): Promise<AnalysisStatus> {
   return invoke<AnalysisStatus>("get_analysis_status");
 }
 
+export async function recoverFinishedAnalysis(
+  jobId: string,
+): Promise<RecoverFinishedAnalysisResult> {
+  return invoke<RecoverFinishedAnalysisResult>("recover_finished_analysis", {
+    jobId,
+  });
+}
+
 export async function startAnalysis(options: {
   kind: AnalysisKind;
   startDate: string;
@@ -151,8 +175,8 @@ export async function startAnalysis(options: {
   });
 }
 
-export async function abortAnalysis(): Promise<void> {
-  await invoke("abort_analysis");
+export async function abortAnalysis(jobId?: string | null): Promise<void> {
+  await invoke("abort_analysis", { jobId: jobId ?? null });
 }
 
 export async function listenAnalysisEvents(

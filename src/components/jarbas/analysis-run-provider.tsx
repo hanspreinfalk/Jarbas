@@ -13,6 +13,7 @@ import {
   emptyTranscript,
   getAnalysisStatus,
   listenAnalysisEvents,
+  recoverFinishedAnalysis,
   type AnalysisKind,
   type AnalysisRunMeta,
   type AnalysisToolCall,
@@ -54,6 +55,11 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
 
   const jobIdRef = useRef<string | null>(null);
   const kindRef = useRef<AnalysisKind | null>(null);
+  /** One-shot buffer so Strict Mode double-effects cannot consume the same completion twice. */
+  const pendingCompletedRef = useRef<{
+    ids: string[];
+    items: unknown[] | null;
+  } | null>(null);
 
   useEffect(() => {
     jobIdRef.current = meta?.jobId ?? null;
@@ -183,11 +189,13 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
       if (event.type === "completed") {
         if (event.kind !== kindRef.current) return;
         if (event.jobId !== jobIdRef.current) return;
+        const items = event.items ?? null;
+        pendingCompletedRef.current = { ids: event.ids, items };
         setDone(true);
         setStopping(false);
         setStatus(null);
         setCompletedIds(event.ids);
-        setCompletedItems(event.items ?? null);
+        setCompletedItems(items);
         setTranscript((current) =>
           current
             ? {
@@ -236,7 +244,82 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
     };
   }, [meta?.jobId, meta?.kind]);
 
+  // If the backend already finished but we missed the terminal event (HMR / desync),
+  // recover the result from the saved transcript so the UI does not spin forever.
+  useEffect(() => {
+    if (!meta || done) return;
+
+    let cancelled = false;
+    let inFlight = false;
+
+    const reconcile = async () => {
+      if (cancelled || inFlight) return;
+      inFlight = true;
+      try {
+        const status = await getAnalysisStatus();
+        if (cancelled) return;
+        if (status.running) return;
+
+        const recovered = await recoverFinishedAnalysis(meta.jobId);
+        if (cancelled) return;
+
+        if ("recovered" in recovered && recovered.recovered) {
+          const items = recovered.items ?? null;
+          pendingCompletedRef.current = { ids: recovered.ids, items };
+          setDone(true);
+          setStopping(false);
+          setStatus(null);
+          setError(null);
+          setCompletedIds(recovered.ids);
+          setCompletedItems(items);
+          setTranscript((current) =>
+            current
+              ? {
+                  ...current,
+                  content: current.content?.trim() ? current.content : "DONE",
+                  finishedAt: Date.now(),
+                  tools: current.tools.map((tool) =>
+                    tool.status === "running"
+                      ? { ...tool, status: "done" as const }
+                      : tool,
+                  ),
+                }
+              : current,
+          );
+          return;
+        }
+
+        const message =
+          "recovered" in recovered && recovered.error
+            ? recovered.error
+            : "Analysis ended unexpectedly. Check Team analysis or Reports for a saved result, or run it again.";
+        setDone(true);
+        setStopping(false);
+        setStatus(null);
+        setError(message);
+        setTranscript((current) =>
+          current ? { ...current, finishedAt: Date.now() } : current,
+        );
+      } catch (err) {
+        console.error("Failed to reconcile analysis run", err);
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    const timer = window.setInterval(() => {
+      void reconcile();
+    }, 4000);
+    void reconcile();
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [meta, done]);
+
   const startRun = useCallback((next: AnalysisRunMeta) => {
+    pendingCompletedRef.current = null;
     setMeta(next);
     setTranscript(emptyTranscript(next));
     setStatus("Starting analysis…");
@@ -249,10 +332,24 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
 
   const stopRun = useCallback(async () => {
     if (stopping || done) return;
+    const jobId = jobIdRef.current;
     setStopping(true);
     setStatus("Stopping…");
     try {
-      await abortAnalysis();
+      await abortAnalysis(jobId);
+      // Hard-unstick if the backend had already finished (no active job).
+      const status = await getAnalysisStatus();
+      if (!status.running) {
+        pendingCompletedRef.current = null;
+        setDone(true);
+        setStopping(false);
+        setStatus(null);
+        setError(null);
+        setMeta(null);
+        setTranscript(null);
+        setCompletedIds(null);
+        setCompletedItems(null);
+      }
     } catch (err) {
       console.error("Failed to stop analysis", err);
       setStopping(false);
@@ -262,6 +359,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
   }, [done, stopping]);
 
   const clearRun = useCallback(() => {
+    pendingCompletedRef.current = null;
     setMeta(null);
     setTranscript(null);
     setStatus(null);
@@ -273,15 +371,13 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const consumeCompleted = useCallback(() => {
-    if (!completedIds) return null;
-    const result = {
-      ids: completedIds,
-      items: completedItems,
-    };
+    const pending = pendingCompletedRef.current;
+    if (!pending) return null;
+    pendingCompletedRef.current = null;
     setCompletedIds(null);
     setCompletedItems(null);
-    return result;
-  }, [completedIds, completedItems]);
+    return pending;
+  }, []);
 
   const value = useMemo<AnalysisRunContextValue>(
     () => ({

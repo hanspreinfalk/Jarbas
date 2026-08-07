@@ -1,10 +1,11 @@
-import { ArrowLeft, Square } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { ArrowLeft, Loader2, Square } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
 import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { Button } from "@/components/ui/button";
 import { formatRangeLabel } from "@/lib/date-range";
 import {
+  friendlyKindReady,
   friendlyKindVerb,
   friendlyPromptLabel,
 } from "@/lib/friendly-analysis";
@@ -32,11 +33,14 @@ export function AnalysisRunView({
 
   const onCompletedRef = useRef(onCompleted);
   onCompletedRef.current = onCompleted;
+  const [opening, setOpening] = useState(false);
 
   useEffect(() => {
     if (!done || error || !completedIds) return;
     const result = consumeCompleted();
-    if (result) onCompletedRef.current(result);
+    if (!result) return;
+    setOpening(true);
+    onCompletedRef.current(result);
   }, [done, error, completedIds, consumeCompleted]);
 
   if (!meta || !transcript) return null;
@@ -44,6 +48,18 @@ export function AnalysisRunView({
   const rangeLabel = formatRangeLabel(meta.startDate, meta.endDate);
   const promptLabel = friendlyPromptLabel(meta.kind, rangeLabel);
   const verb = friendlyKindVerb(meta.kind);
+  const ready = done && !live && !error;
+
+  if (opening || (ready && completedIds)) {
+    return (
+      <div className="animate-rise flex min-h-[calc(100dvh-5rem)] flex-col items-center justify-center gap-3 px-4">
+        <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        <p className="text-sm text-muted-foreground">
+          {friendlyKindReady(meta.kind)} · opening…
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div className="animate-rise flex min-h-[calc(100dvh-5rem)] flex-col">
