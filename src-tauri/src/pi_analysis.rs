@@ -162,7 +162,8 @@ impl Default for AnalysisState {
 
 fn tool_label(name: &str) -> String {
     let base = name.split("__").last().unwrap_or(name);
-    match base {
+    let lower = base.to_ascii_lowercase();
+    match lower.as_str() {
         "bash" | "shell" | "run_terminal_cmd" => "bash".into(),
         "read" | "read_file" => "read".into(),
         "write" | "write_file" => "write".into(),
@@ -170,6 +171,13 @@ fn tool_label(name: &str) -> String {
         "grep" | "rg" | "search" => "search".into(),
         "find" | "glob" => "find".into(),
         "ls" => "ls".into(),
+        other if other.contains("composio") && other.contains("search") => {
+            "Composio search".into()
+        }
+        other if other.contains("composio") && other.contains("multi") => {
+            "Composio execute".into()
+        }
+        other if other.contains("composio") => "Composio".into(),
         other => other.replace('-', " ").replace('_', " "),
     }
 }
@@ -707,13 +715,6 @@ fn handle_stdout_line(app: &AppHandle, state: &AnalysisState, line: &str) {
                     label: label.clone(),
                     tool_name,
                     args,
-                },
-            );
-            emit(
-                app,
-                AnalysisEvent::Status {
-                    job_id,
-                    message: format!("Using {label}…"),
                 },
             );
         }

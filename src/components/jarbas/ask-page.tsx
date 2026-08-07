@@ -357,12 +357,17 @@ function toolBaseName(name: string): string {
 }
 
 function humanizeToolName(name: string): string {
-  const base = toolBaseName(name)
+  const base = toolBaseName(name);
+  const lower = base.toLowerCase();
+  if (lower.includes("composio") && lower.includes("search")) return "Composio search";
+  if (lower.includes("composio") && lower.includes("multi")) return "Composio execute";
+  if (lower.includes("composio")) return "Composio";
+  const cleaned = base
     .replace(/[-_]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (!base) return "tool";
-  return base.charAt(0).toUpperCase() + base.slice(1);
+  if (!cleaned) return "tool";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
 function toolDisplayTitle(tool: ToolCallState): string {
@@ -424,7 +429,14 @@ function ToolRow({ tool }: { tool: ToolCallState }) {
         disabled={!hasDetails}
       >
         <ToolGlyph running={tool.status === "running"} failed={failed} />
-        <span className="min-w-0 flex-1 truncate">{title}</span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            tool.status === "running" && "animate-thinking",
+          )}
+        >
+          {title}
+        </span>
         {hasDetails ? (
           <ChevronDown
             className={cn(
@@ -449,10 +461,31 @@ function ToolRow({ tool }: { tool: ToolCallState }) {
   );
 }
 
-function ToolActivityList({ tools }: { tools: ToolCallState[] }) {
+function ToolActivityList({
+  tools,
+  live = false,
+}: {
+  tools: ToolCallState[];
+  live?: boolean;
+}) {
+  const visible = live
+    ? [
+        ...tools.filter((tool) => tool.status === "running"),
+        ...tools.filter((tool) => tool.status !== "running").slice(-6),
+      ].filter(
+        (tool, index, list) => list.findIndex((item) => item.id === tool.id) === index,
+      )
+    : tools;
+  const hidden = Math.max(0, tools.length - visible.length);
+
   return (
     <div className="flex flex-col gap-0.5">
-      {tools.map((tool) => (
+      {hidden > 0 ? (
+        <p className="py-0.5 text-[13px] text-muted-foreground/70">
+          {hidden} earlier {hidden === 1 ? "tool" : "tools"}
+        </p>
+      ) : null}
+      {visible.map((tool) => (
         <ToolRow key={tool.id} tool={tool} />
       ))}
     </div>
@@ -520,7 +553,7 @@ function WorkedForDetails({
       )}
       {showTools ? (
         <div className="mt-1.5">
-          <ToolActivityList tools={tools} />
+          <ToolActivityList tools={tools} live={live} />
         </div>
       ) : null}
     </div>

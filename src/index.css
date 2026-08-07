@@ -213,7 +213,17 @@
   }
 
   .animate-thinking {
-    animation: thinking-fade 1.4s ease-in-out infinite;
+    background-image: linear-gradient(
+      90deg,
+      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 0%,
+      var(--foreground) 45%,
+      color-mix(in oklab, var(--muted-foreground) 55%, transparent) 90%
+    );
+    background-size: 200% 100%;
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+    animation: thinking-shimmer 1.6s ease-in-out infinite;
   }
 }
 
@@ -237,12 +247,11 @@
   }
 }
 
-@keyframes thinking-fade {
-  0%,
-  100% {
-    opacity: 0.45;
+@keyframes thinking-shimmer {
+  0% {
+    background-position: 100% 0;
   }
-  50% {
-    opacity: 1;
+  100% {
+    background-position: -100% 0;
   }
 }

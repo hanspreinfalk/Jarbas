@@ -232,7 +232,7 @@ export function AnalysisRunView({
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto pb-24">
+      <div className="min-h-0 flex-1 overflow-y-auto">
         <AnalysisChatPanel
           transcript={transcript}
           live={live}
@@ -241,27 +241,6 @@ export function AnalysisRunView({
           promptLabel={promptLabel}
         />
       </div>
-
-      {live ? (
-        <div className="sticky bottom-0 shrink-0 border-t border-border bg-background/95 px-4 py-3 backdrop-blur sm:px-6">
-          <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3">
-            <p className="min-w-0 truncate text-sm text-muted-foreground">
-              {stopping ? "Stopping analysis…" : status || "Analysis running…"}
-            </p>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-none"
-              disabled={stopping}
-              onClick={() => void handleStop()}
-            >
-              <Square className="size-3 fill-current" />
-              {stopping ? "Stopping…" : "Stop"}
-            </Button>
-          </div>
-        </div>
-      ) : null}
     </div>
   );
 }

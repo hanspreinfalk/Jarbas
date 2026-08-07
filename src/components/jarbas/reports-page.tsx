@@ -31,7 +31,7 @@ import {
   listToLines,
 } from "@/components/jarbas/analysis-item-editor";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
-import { DetailAiTabs } from "@/components/jarbas/detail-ai-tabs";
+import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
 import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
@@ -251,6 +251,9 @@ function ReportDetail({
           All reports
         </Button>
         <div className="flex flex-wrap items-center gap-2">
+          {!editing ? (
+            <AnalysisRunButton tab={tab} onTabChange={setTab} />
+          ) : null}
           {tab === "details" ? (
             <AnalysisItemToolbar
               editing={editing}
@@ -288,10 +291,6 @@ function ReportDetail({
         </div>
       </div>
 
-      <div className="mt-2">
-        {!editing ? <DetailAiTabs tab={tab} onTabChange={setTab} /> : null}
-      </div>
-
       {actionError ? (
         <p className="mt-4 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
           {actionError}
@@ -313,7 +312,7 @@ function ReportDetail({
           />
         </div>
       ) : (
-      <div ref={reportRef} className="bg-background pt-4">
+      <div ref={reportRef} className="bg-background pt-6">
       {/* Header */}
       <header className="pb-2">
         {editing ? (

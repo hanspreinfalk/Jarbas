@@ -1,34 +1,28 @@
-import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 
-export function DetailAiTabs({
+export type DetailViewTab = "details" | "ai";
+
+/** Toggle between the saved result and the analysis transcript — lives in the top toolbar. */
+export function AnalysisRunButton({
   tab,
   onTabChange,
+  disabled,
 }: {
-  tab: "details" | "ai";
-  onTabChange: (tab: "details" | "ai") => void;
+  tab: DetailViewTab;
+  onTabChange: (tab: DetailViewTab) => void;
+  disabled?: boolean;
 }) {
+  const viewingRun = tab === "ai";
   return (
-    <div className="mt-4 inline-flex border border-border">
-      {(
-        [
-          { id: "details", label: "Details" },
-          { id: "ai", label: "AI" },
-        ] as const
-      ).map((item) => (
-        <button
-          key={item.id}
-          type="button"
-          onClick={() => onTabChange(item.id)}
-          className={cn(
-            "px-3 py-1.5 text-xs font-medium transition-colors",
-            tab === item.id
-              ? "bg-foreground text-background"
-              : "bg-background text-muted-foreground hover:bg-muted hover:text-foreground",
-          )}
-        >
-          {item.label}
-        </button>
-      ))}
-    </div>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="rounded-none"
+      disabled={disabled}
+      onClick={() => onTabChange(viewingRun ? "details" : "ai")}
+    >
+      {viewingRun ? "Result" : "Analysis run"}
+    </Button>
   );
 }

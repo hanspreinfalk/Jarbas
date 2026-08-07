@@ -116,3 +116,13 @@ export function formatRangeLabel(start: string, end: string) {
   if (start === end) return start;
   return `${start} → ${end}`;
 }
+
+/** Explicit start/end for list cards and detail metadata. */
+export function formatStartEndLabel(start?: string, end?: string) {
+  const s = (start ?? "").trim();
+  const e = (end ?? "").trim();
+  if (!s && !e) return null;
+  const startLabel = s || e;
+  const endLabel = e || s;
+  return `Start ${startLabel} · End ${endLabel}`;
+}

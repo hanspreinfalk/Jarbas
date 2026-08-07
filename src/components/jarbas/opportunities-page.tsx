@@ -15,7 +15,7 @@ import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
-import { DetailAiTabs } from "@/components/jarbas/detail-ai-tabs";
+import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
 import { Button } from "@/components/ui/button";
 import {
   deleteAnalysisItem,
@@ -24,7 +24,7 @@ import {
   type AnalysisRunMeta,
   type AnalysisTranscript,
 } from "@/lib/analysis";
-import { formatRangeLabel } from "@/lib/date-range";
+import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
 import type { Opportunity } from "@/lib/opportunities";
 
 type OpportunityDraft = {
@@ -171,28 +171,33 @@ function OpportunityDetail({
           <ArrowLeft className="size-3.5" />
           All opportunities
         </Button>
-        {tab === "details" ? (
-          <AnalysisItemToolbar
-            editing={editing}
-            saving={saving}
-            deleting={deleting}
-            onEdit={() => {
-              setDraft(toDraft(opportunity));
-              setEditing(true);
-              setActionError(null);
-            }}
-            onCancelEdit={() => {
-              setDraft(toDraft(opportunity));
-              setEditing(false);
-              setActionError(null);
-            }}
-            onSave={() => void handleSave()}
-            onDeleteRequest={() => setConfirmDelete(true)}
-          />
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {!editing ? (
+            <AnalysisRunButton tab={tab} onTabChange={setTab} />
+          ) : null}
+          {tab === "details" ? (
+            <AnalysisItemToolbar
+              editing={editing}
+              saving={saving}
+              deleting={deleting}
+              onEdit={() => {
+                setDraft(toDraft(opportunity));
+                setEditing(true);
+                setActionError(null);
+              }}
+              onCancelEdit={() => {
+                setDraft(toDraft(opportunity));
+                setEditing(false);
+                setActionError(null);
+              }}
+              onSave={() => void handleSave()}
+              onDeleteRequest={() => setConfirmDelete(true)}
+            />
+          ) : null}
+        </div>
       </div>
 
-      <header className="mt-4 border-b border-border pb-6">
+      <header className="mt-6 border-b border-border pb-6">
         {editing ? (
           <div className="space-y-4">
             <div className="space-y-1.5">
@@ -255,7 +260,6 @@ function OpportunityDetail({
             </p>
           </>
         )}
-        {!editing ? <DetailAiTabs tab={tab} onTabChange={setTab} /> : null}
       </header>
 
       {actionError ? (
@@ -545,7 +549,12 @@ export function OpportunitiesPage() {
         </div>
       ) : (
         <ul className="mt-10 divide-y divide-border border border-border bg-card">
-          {items.map((opportunity, index) => (
+          {items.map((opportunity, index) => {
+            const rangeLabel = formatStartEndLabel(
+              opportunity.startDate,
+              opportunity.endDate,
+            );
+            return (
             <li key={opportunity.id}>
               <button
                 type="button"
@@ -553,35 +562,40 @@ export function OpportunitiesPage() {
                 className="animate-rise w-full px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {opportunity.category}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    {opportunity.horizon}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Impact {opportunity.impact}
-                  </span>
-                  <span className="text-xs text-muted-foreground">
-                    Effort {opportunity.effort}
-                  </span>
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
+                      {opportunity.category}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      {opportunity.horizon}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Impact {opportunity.impact}
+                    </span>
+                    <span className="text-xs text-muted-foreground">
+                      Effort {opportunity.effort}
+                    </span>
+                  </div>
+                  {rangeLabel ? (
+                    <span className="text-xs text-muted-foreground">
+                      {rangeLabel}
+                    </span>
+                  ) : null}
                 </div>
                 <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
                   {opportunity.title}
                 </h2>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground">Signal · </span>
-                  {opportunity.signal}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-foreground/90">
-                  <span className="font-medium">Unlock · </span>
-                  {opportunity.unlock}
-                </p>
+                {opportunity.signal ? (
+                  <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                    {opportunity.signal}
+                  </p>
+                ) : null}
                 <AppBadgeList apps={opportunity.apps ?? []} className="mt-3" />
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

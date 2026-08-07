@@ -15,7 +15,7 @@ import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
-import { DetailAiTabs } from "@/components/jarbas/detail-ai-tabs";
+import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
 import { Button } from "@/components/ui/button";
 import {
   deleteAnalysisItem,
@@ -24,8 +24,37 @@ import {
   type AnalysisRunMeta,
   type AnalysisTranscript,
 } from "@/lib/analysis";
-import { formatRangeLabel } from "@/lib/date-range";
+import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
 import type { Learning } from "@/lib/learnings";
+import { cn } from "@/lib/utils";
+
+function confidenceBadgeClass(confidence: string) {
+  const value = confidence.trim().toLowerCase();
+  if (value === "high") {
+    return "border-primary/30 bg-primary text-primary-foreground";
+  }
+  if (value === "medium" || value === "med") {
+    return "border-border bg-sky text-navy";
+  }
+  if (value === "low") {
+    return "border-destructive/30 bg-destructive/10 text-destructive";
+  }
+  return "border-border bg-muted text-muted-foreground";
+}
+
+function ConfidenceBadge({ confidence }: { confidence: string }) {
+  const label = confidence.trim() || "Unknown";
+  return (
+    <span
+      className={cn(
+        "label-caps border px-1.5 py-0.5 text-[10px]",
+        confidenceBadgeClass(label),
+      )}
+    >
+      Confidence {label}
+    </span>
+  );
+}
 
 type LearningDraft = {
   title: string;
@@ -158,42 +187,43 @@ function LearningDetail({
           <ArrowLeft className="size-3.5" />
           All learnings
         </Button>
-        {tab === "details" ? (
-          <AnalysisItemToolbar
-            editing={editing}
-            saving={saving}
-            deleting={deleting}
-            onEdit={() => {
-              setDraft(toDraft(learning));
-              setEditing(true);
-              setActionError(null);
-            }}
-            onCancelEdit={() => {
-              setDraft(toDraft(learning));
-              setEditing(false);
-              setActionError(null);
-            }}
-            onSave={() => void handleSave()}
-            onDeleteRequest={() => setConfirmDelete(true)}
-          />
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {!editing ? (
+            <AnalysisRunButton tab={tab} onTabChange={setTab} />
+          ) : null}
+          {tab === "details" ? (
+            <AnalysisItemToolbar
+              editing={editing}
+              saving={saving}
+              deleting={deleting}
+              onEdit={() => {
+                setDraft(toDraft(learning));
+                setEditing(true);
+                setActionError(null);
+              }}
+              onCancelEdit={() => {
+                setDraft(toDraft(learning));
+                setEditing(false);
+                setActionError(null);
+              }}
+              onSave={() => void handleSave()}
+              onDeleteRequest={() => setConfirmDelete(true)}
+            />
+          ) : null}
+        </div>
       </div>
 
-      <header className="mt-4 border-b border-border pb-6">
+      <header className="mt-6 border-b border-border pb-8">
         {editing ? (
           <div className="space-y-4">
             <div className="space-y-1.5">
               <FieldLabel>Title</FieldLabel>
               <FieldInput value={draft.title} onChange={(v) => patchDraft("title", v)} />
             </div>
-            <div className="grid gap-4 sm:grid-cols-3">
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <FieldLabel>Category</FieldLabel>
                 <FieldInput value={draft.category} onChange={(v) => patchDraft("category", v)} />
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel>Frequency</FieldLabel>
-                <FieldInput value={draft.frequency} onChange={(v) => patchDraft("frequency", v)} />
               </div>
               <div className="space-y-1.5">
                 <FieldLabel>Confidence</FieldLabel>
@@ -203,26 +233,22 @@ function LearningDetail({
           </div>
         ) : (
           <>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                {learning.category}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                {learning.frequency}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                Confidence {learning.confidence}
-              </span>
-            </div>
+            <ConfidenceBadge confidence={learning.confidence} />
             <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
               {learning.title}
             </h1>
-            <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              First seen {learning.firstSeen} · Last seen {learning.lastSeen}
-            </p>
+            {learning.category ? (
+              <p className="mt-3 text-sm text-muted-foreground">
+                {learning.category}
+              </p>
+            ) : null}
+            {formatStartEndLabel(learning.startDate, learning.endDate) ? (
+              <p className="mt-2 text-sm text-muted-foreground">
+                {formatStartEndLabel(learning.startDate, learning.endDate)}
+              </p>
+            ) : null}
           </>
         )}
-        {!editing ? <DetailAiTabs tab={tab} onTabChange={setTab} /> : null}
       </header>
 
       {actionError ? (
@@ -254,6 +280,21 @@ function LearningDetail({
             ) : (
               <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
                 {learning.observed}
+              </p>
+            )}
+          </section>
+
+          <section className="mt-8 space-y-3 border-t border-border pt-8">
+            <h2 className="label-caps text-muted-foreground">Frequency</h2>
+            {editing ? (
+              <TextArea
+                value={draft.frequency}
+                onChange={(v) => patchDraft("frequency", v)}
+                rows={2}
+              />
+            ) : (
+              <p className="text-sm leading-relaxed text-foreground sm:text-[15px]">
+                {learning.frequency}
               </p>
             )}
           </section>
@@ -329,18 +370,28 @@ function LearningDetail({
             </div>
           </section>
 
-          {editing ? (
-            <section className="mt-8 grid gap-6 border-t border-border pt-8 sm:grid-cols-2">
-              <div className="space-y-2">
-                <h2 className="label-caps text-muted-foreground">First seen</h2>
+          <section className="mt-8 grid gap-6 border-t border-border pt-8 sm:grid-cols-2">
+            <div className="space-y-2">
+              <h2 className="label-caps text-muted-foreground">First seen</h2>
+              {editing ? (
                 <FieldInput value={draft.firstSeen} onChange={(v) => patchDraft("firstSeen", v)} />
-              </div>
-              <div className="space-y-2">
-                <h2 className="label-caps text-muted-foreground">Last seen</h2>
+              ) : (
+                <p className="text-sm leading-relaxed text-foreground">
+                  {learning.firstSeen}
+                </p>
+              )}
+            </div>
+            <div className="space-y-2">
+              <h2 className="label-caps text-muted-foreground">Last seen</h2>
+              {editing ? (
                 <FieldInput value={draft.lastSeen} onChange={(v) => patchDraft("lastSeen", v)} />
-              </div>
-            </section>
-          ) : null}
+              ) : (
+                <p className="text-sm leading-relaxed text-foreground">
+                  {learning.lastSeen}
+                </p>
+              )}
+            </div>
+          </section>
 
           <section className="mt-8 space-y-3 border-t border-border pt-8">
             <h2 className="label-caps text-muted-foreground">Next action</h2>
@@ -496,7 +547,12 @@ export function LearningsPage() {
         </div>
       ) : (
         <ul className="mt-10 divide-y divide-border border border-border bg-card">
-          {items.map((learning, index) => (
+          {items.map((learning, index) => {
+            const rangeLabel = formatStartEndLabel(
+              learning.startDate,
+              learning.endDate,
+            );
+            return (
             <li key={learning.id}>
               <button
                 type="button"
@@ -504,29 +560,29 @@ export function LearningsPage() {
                 className="animate-rise w-full px-4 py-4 text-left transition-colors hover:bg-muted sm:px-5"
                 style={{ animationDelay: `${index * 50}ms` }}
               >
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
                   <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {learning.category}
                   </span>
-                  <span className="text-xs text-muted-foreground">
-                    {learning.frequency}
-                  </span>
+                  {rangeLabel ? (
+                    <span className="text-xs text-muted-foreground">
+                      {rangeLabel}
+                    </span>
+                  ) : null}
                 </div>
                 <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
                   {learning.title}
                 </h2>
-                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                  <span className="font-medium text-foreground">Observed · </span>
-                  {learning.observed}
-                </p>
-                <p className="mt-2 text-sm leading-relaxed text-foreground/90">
-                  <span className="font-medium">Insight · </span>
-                  {learning.insight}
-                </p>
+                {learning.observed ? (
+                  <p className="mt-1.5 line-clamp-2 text-sm leading-relaxed text-muted-foreground">
+                    {learning.observed}
+                  </p>
+                ) : null}
                 <AppBadgeList apps={learning.apps ?? []} className="mt-3" />
               </button>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

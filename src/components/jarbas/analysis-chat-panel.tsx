@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ChevronDown, Loader2 } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import Markdown from "react-markdown";
 import type { AnalysisToolCall, AnalysisTranscript } from "@/lib/analysis";
 import { cn } from "@/lib/utils";
@@ -67,7 +67,16 @@ function toolDisplayTitle(tool: AnalysisToolCall): string {
     return "search";
   }
 
-  return tool.label || toolBaseName(tool.name);
+  return humanizeToolName(tool.name);
+}
+
+function humanizeToolName(name: string): string {
+  const base = toolBaseName(name);
+  const lower = base.toLowerCase();
+  if (lower.includes("composio") && lower.includes("search")) return "Composio search";
+  if (lower.includes("composio") && lower.includes("multi")) return "Composio execute";
+  if (lower.includes("composio")) return "Composio";
+  return base.replace(/[-_]+/g, " ").replace(/\s+/g, " ").trim() || "tool";
 }
 
 function formatToolArgs(args: unknown) {
@@ -128,7 +137,14 @@ function ToolRow({ tool }: { tool: AnalysisToolCall }) {
         disabled={!hasDetails}
       >
         <ToolGlyph running={tool.status === "running"} failed={failed} />
-        <span className="min-w-0 flex-1 truncate">{title}</span>
+        <span
+          className={cn(
+            "min-w-0 flex-1 truncate",
+            tool.status === "running" && "animate-thinking",
+          )}
+        >
+          {title}
+        </span>
         {hasDetails ? (
           <ChevronDown
             className={cn(
@@ -251,11 +267,42 @@ export function AnalysisChatPanel({
     Boolean(transcript.thinking?.trim()) ||
     Boolean(transcript.content?.trim()) ||
     tools.length > 0;
+  const runningTools = tools.filter((tool) => tool.status === "running");
+  const visibleTools = live
+    ? [
+        ...tools.filter((tool) => tool.status === "running"),
+        ...tools.filter((tool) => tool.status !== "running").slice(-6),
+      ].filter(
+        (tool, index, list) => list.findIndex((item) => item.id === tool.id) === index,
+      )
+    : tools;
+  const hiddenToolCount = Math.max(0, tools.length - visibleTools.length);
+  // Only show start/stop status — never "Using …" and never while tools already show activity.
+  const showStatus =
+    live &&
+    Boolean(status) &&
+    !/^using\b/i.test(status ?? "") &&
+    runningTools.length === 0 &&
+    (tools.length === 0 || /stopp|start|analyz/i.test(status ?? ""));
+  const showThinkingPlaceholder =
+    live &&
+    !transcript.content?.trim() &&
+    runningTools.length === 0 &&
+    !transcript.thinking?.trim();
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6 sm:px-6">
+      {!live ? (
+        <div className="border border-border bg-muted/30 px-4 py-3">
+          <p className="label-caps text-muted-foreground">Analysis run</p>
+          <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+            Replay of tools, thinking, and output from when this was generated.
+          </p>
+        </div>
+      ) : null}
+
       <div className="border border-border bg-card px-4 py-3">
-        <p className="label-caps text-muted-foreground">You</p>
+        <p className="label-caps text-muted-foreground">Prompt</p>
         <p className="mt-2 text-sm leading-relaxed text-foreground">
           {promptLabel}
         </p>
@@ -263,7 +310,7 @@ export function AnalysisChatPanel({
 
       <div className="min-w-0">
         <div className="flex items-center justify-between gap-3">
-          <p className="label-caps text-muted-foreground">Jarbas</p>
+          <p className="label-caps text-muted-foreground">Pi</p>
           <p className="text-[13px] text-muted-foreground tabular-nums">
             {live ? "Running" : "Worked for"} {durationLabel}
             {tools.length > 0 ? (
@@ -277,13 +324,25 @@ export function AnalysisChatPanel({
 
         {tools.length > 0 ? (
           <div className="mt-3 flex flex-col gap-0.5">
-            {tools.map((tool) => (
+            {hiddenToolCount > 0 ? (
+              <p className="py-0.5 text-[13px] text-muted-foreground/70">
+                {hiddenToolCount} earlier{" "}
+                {hiddenToolCount === 1 ? "tool" : "tools"}
+              </p>
+            ) : null}
+            {visibleTools.map((tool) => (
               <ToolRow key={tool.id} tool={tool} />
             ))}
           </div>
         ) : null}
 
-        {transcript.thinking?.trim() ? (
+        {showThinkingPlaceholder ? (
+          <p className="mt-4 animate-thinking text-sm text-muted-foreground">
+            Thinking…
+          </p>
+        ) : null}
+
+        {!live && transcript.thinking?.trim() ? (
           <details className="mt-4 group">
             <summary className="cursor-pointer text-[13px] text-muted-foreground hover:text-foreground">
               Thinking
@@ -300,16 +359,8 @@ export function AnalysisChatPanel({
           </div>
         ) : null}
 
-        {live && !hasBody ? (
-          <p className="mt-4 flex items-center gap-2 text-sm text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
-            {status || "Starting analysis…"}
-          </p>
-        ) : null}
-
-        {live && hasBody && status ? (
-          <p className="mt-4 flex items-center gap-2 text-[13px] text-muted-foreground">
-            <Loader2 className="size-3.5 animate-spin" />
+        {showStatus ? (
+          <p className="mt-4 animate-thinking text-sm text-muted-foreground">
             {status}
           </p>
         ) : null}
@@ -322,7 +373,7 @@ export function AnalysisChatPanel({
 
         {!live && !hasBody && !error ? (
           <p className="mt-4 text-sm text-muted-foreground">
-            No AI transcript was saved for this result.
+            No analysis transcript was saved for this result.
           </p>
         ) : null}
 

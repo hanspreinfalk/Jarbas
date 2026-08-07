@@ -645,8 +645,7 @@ export function SettingsPage() {
 
           <div className="border-t border-border px-4 py-4">
             <p className="text-sm text-muted-foreground">
-              Delete capture videos, frames, snapshots, and analysis for a date
-              range — or wipe the whole ~/.jarbas folder.
+              Delete a date range, or reset all of ~/.jarbas.
             </p>
             <div className="mt-3 flex flex-wrap gap-2">
               <Button
@@ -705,9 +704,8 @@ export function SettingsPage() {
           <DialogHeader>
             <DialogTitle>Delete data by range</DialogTitle>
             <DialogDescription>
-              Removes videos, frames, snapshots, and learnings / opportunities /
-              reports that fall in this range. Keeps API keys and assistant
-              install.
+              Deletes capture and analysis in this range. Keeps keys and the
+              assistant.
             </DialogDescription>
           </DialogHeader>
 
