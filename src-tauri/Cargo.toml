@@ -27,4 +27,6 @@ dotenvy = "0.15"
 dirs = "6"
 tokio = { version = "1.53.1", features = ["io-util", "macros", "process", "sync", "time"] }
 tauri-plugin-localhost = "2"
+regex = "1.13.1"
+rusqlite = { version = "0.40.1", features = ["bundled"] }
 

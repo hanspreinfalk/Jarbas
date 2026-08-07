@@ -1,0 +1,14 @@
+[[permission]]
+identifier = "allow-redact-jarbas-capture"
+description = "Allows redacting emails, keys, passwords, and similar patterns from local capture text."
+commands.allow = ["redact_jarbas_capture"]
+
+[[permission]]
+identifier = "allow-get-last-redaction"
+description = "Allows reading the last sensitive-text redaction pass summary."
+commands.allow = ["get_last_redaction"]
+
+[[permission]]
+identifier = "allow-get-redaction-history"
+description = "Allows reading the full sensitive-text redaction history."
+commands.allow = ["get_redaction_history"]

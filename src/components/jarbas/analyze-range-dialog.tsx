@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useUser } from "@clerk/clerk-react";
 import { useQuery } from "convex/react";
-import { Sparkles } from "lucide-react";
+import { Loader2, Sparkles } from "lucide-react";
 import { ModelPicker } from "@/components/jarbas/model-picker";
 import { Button } from "@/components/ui/button";
 import {
@@ -44,6 +44,26 @@ type AnalyzeRangeDialogProps = {
   onStarted: (meta: AnalysisRunMeta) => void;
 };
 
+function startingCopy(kind: AnalysisKind): { title: string; detail: string } {
+  switch (kind) {
+    case "learnings":
+      return {
+        title: "Starting learnings",
+        detail: "Kicking off analysis of how you work. This can take a moment.",
+      };
+    case "opportunities":
+      return {
+        title: "Starting opportunities",
+        detail: "Kicking off opportunity analysis. This can take a moment.",
+      };
+    case "reports":
+      return {
+        title: "Starting report",
+        detail: "Kicking off your work report. This can take a moment.",
+      };
+  }
+}
+
 export function AnalyzeRangeDialog({
   open,
   onOpenChange,
@@ -69,6 +89,7 @@ export function AnalyzeRangeDialog({
     llmSettings,
     llmSettings?.provider ?? "anthropic",
   );
+  const loading = startingCopy(kind);
 
   useEffect(() => {
     if (!open) return;
@@ -121,6 +142,10 @@ export function AnalyzeRangeDialog({
     setStarting(true);
     setError(null);
     try {
+      // Let React paint the loader before the IPC call can stall the UI.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
       const result = await startAnalysis({
         kind,
         startDate,
@@ -145,97 +170,115 @@ export function AnalyzeRangeDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="rounded-none sm:max-w-lg">
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (starting) return;
+        onOpenChange(next);
+      }}
+    >
+      <DialogContent
+        className="rounded-none sm:max-w-lg"
+        showCloseButton={!starting}
+      >
         <DialogHeader>
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{description}</DialogDescription>
+          <DialogTitle>{starting ? loading.title : title}</DialogTitle>
+          <DialogDescription>
+            {starting
+              ? "The app is still working — hang tight while the run starts."
+              : description}
+          </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-5">
-          <div>
-            <p className="label-caps text-muted-foreground">Suggestions</p>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {DATE_RANGE_PRESETS.map((preset) => (
-                <button
-                  key={preset.id}
-                  type="button"
-                  disabled={starting}
-                  onClick={() => applyPreset(preset)}
-                  className={cn(
-                    "border px-2.5 py-1.5 text-xs font-medium transition-colors",
-                    presetId === preset.id
-                      ? "border-foreground bg-foreground text-background"
-                      : "border-border bg-background text-foreground hover:bg-muted",
-                    starting && "opacity-60",
-                  )}
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <p className="label-caps text-muted-foreground">Custom range</p>
-            <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label className="space-y-1.5">
-                <span className="text-xs text-muted-foreground">Start</span>
-                <Input
-                  type="date"
-                  value={startDate}
-                  disabled={starting}
-                  onChange={(event) => {
-                    setPresetId("custom");
-                    setStartDate(event.target.value);
-                  }}
-                  className="rounded-none"
-                />
-              </label>
-              <label className="space-y-1.5">
-                <span className="text-xs text-muted-foreground">End</span>
-                <Input
-                  type="date"
-                  value={endDate}
-                  disabled={starting}
-                  onChange={(event) => {
-                    setPresetId("custom");
-                    setEndDate(event.target.value);
-                  }}
-                  className="rounded-none"
-                />
-              </label>
-            </div>
-            {!rangeValid ? (
-              <p className="mt-2 text-xs text-destructive">
-                End date must be on or after start date.
-              </p>
-            ) : (
-              <p className="mt-2 text-xs text-muted-foreground">
-                Selected · {formatRangeLabel(startDate, endDate)}
-              </p>
-            )}
-          </div>
-
-          <div className="flex items-center justify-between gap-3 border border-border bg-muted/30 px-3 py-2.5">
+        {starting ? (
+          <div className="flex items-center gap-3 border border-border bg-muted/40 px-3 py-3 text-sm text-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
             <div className="min-w-0">
-              <p className="label-caps text-muted-foreground">Which AI</p>
+              <p className="font-medium">Working…</p>
+              <p className="mt-0.5 text-muted-foreground">{loading.detail}</p>
             </div>
-            <ModelPicker
-              settings={llmSettings}
-              disabled={starting}
-              onSelect={onModelSelect}
-              side="bottom"
-              align="end"
-            />
           </div>
+        ) : (
+          <div className="space-y-5">
+            <div>
+              <p className="label-caps text-muted-foreground">Suggestions</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {DATE_RANGE_PRESETS.map((preset) => (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => applyPreset(preset)}
+                    className={cn(
+                      "border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                      presetId === preset.id
+                        ? "border-foreground bg-foreground text-background"
+                        : "border-border bg-background text-foreground hover:bg-muted",
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
-          {error ? (
-            <p className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-              {error}
-            </p>
-          ) : null}
-        </div>
+            <div>
+              <p className="label-caps text-muted-foreground">Custom range</p>
+              <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">Start</span>
+                  <Input
+                    type="date"
+                    value={startDate}
+                    onChange={(event) => {
+                      setPresetId("custom");
+                      setStartDate(event.target.value);
+                    }}
+                    className="rounded-none"
+                  />
+                </label>
+                <label className="space-y-1.5">
+                  <span className="text-xs text-muted-foreground">End</span>
+                  <Input
+                    type="date"
+                    value={endDate}
+                    onChange={(event) => {
+                      setPresetId("custom");
+                      setEndDate(event.target.value);
+                    }}
+                    className="rounded-none"
+                  />
+                </label>
+              </div>
+              {!rangeValid ? (
+                <p className="mt-2 text-xs text-destructive">
+                  End date must be on or after start date.
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Selected · {formatRangeLabel(startDate, endDate)}
+                </p>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between gap-3 border border-border bg-muted/30 px-3 py-2.5">
+              <div className="min-w-0">
+                <p className="label-caps text-muted-foreground">Which AI</p>
+              </div>
+              <ModelPicker
+                settings={llmSettings}
+                onSelect={onModelSelect}
+                side="bottom"
+                align="end"
+              />
+            </div>
+          </div>
+        )}
+
+        {error ? (
+          <p className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        ) : null}
 
         <DialogFooter className="gap-2 sm:justify-between">
           <Button
@@ -253,8 +296,17 @@ export function AnalyzeRangeDialog({
             disabled={!rangeValid || starting || !llmSettings || !hasKey}
             onClick={() => void onConfirm()}
           >
-            <Sparkles className="size-3.5" />
-            {starting ? "Starting…" : confirmLabel}
+            {starting ? (
+              <>
+                <Loader2 className="size-3.5 animate-spin" />
+                Starting…
+              </>
+            ) : (
+              <>
+                <Sparkles className="size-3.5" />
+                {confirmLabel}
+              </>
+            )}
           </Button>
         </DialogFooter>
       </DialogContent>

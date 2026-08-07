@@ -81,6 +81,87 @@ export async function resetJarbasData(options: {
   });
 }
 
+export type RedactCaptureResult = {
+  id?: string;
+  scannedRows: number;
+  updatedRows: number;
+  message: string;
+  startDate?: string;
+  endDate?: string;
+  startedAt?: string;
+  completedAt: string;
+  durationMs?: number;
+  totalMatches?: number;
+  counts?: Record<string, number>;
+};
+
+const REDACTION_CATEGORY_LABELS: Record<string, string> = {
+  EMAIL: "Emails",
+  PASSWORD: "Passwords",
+  PASSWORD_DOTS: "Password dots",
+  PASSWORD_FIELD: "Password fields",
+  PHONE: "Phone numbers",
+  CREDIT_CARD: "Credit cards",
+  SSN: "SSNs",
+  IP_ADDRESS: "IP addresses",
+  JWT_TOKEN: "JWT tokens",
+  PRIVATE_KEY: "Private keys",
+  CONNECTION_STRING: "Connection strings",
+  URL_WITH_CREDENTIALS: "URLs with credentials",
+  STRIPE_KEY: "Stripe keys",
+  ANTHROPIC_KEY: "Anthropic keys",
+  OPENAI_KEY: "OpenAI keys",
+  GOOGLE_API_KEY: "Google API keys",
+  HUGGINGFACE_TOKEN: "Hugging Face tokens",
+  GITHUB_TOKEN: "GitHub tokens",
+  CLOUDFLARE_TOKEN: "Cloudflare tokens",
+  SUPABASE_KEY: "Supabase keys",
+  SLACK_TOKEN: "Slack tokens",
+  DISCORD_TOKEN: "Discord tokens",
+  GITLAB_TOKEN: "GitLab tokens",
+  NPM_TOKEN: "npm tokens",
+  PYPI_TOKEN: "PyPI tokens",
+  DIGITALOCEAN_TOKEN: "DigitalOcean tokens",
+  TELEGRAM_TOKEN: "Telegram tokens",
+  TWILIO_KEY: "Twilio keys",
+  SENDGRID_KEY: "SendGrid keys",
+  MAILCHIMP_KEY: "Mailchimp keys",
+  AWS_KEY: "AWS access keys",
+  AWS_SECRET: "AWS secrets",
+  AZURE_KEY: "Azure keys",
+  API_KEY: "API keys",
+  AUTH_TOKEN: "Auth tokens",
+  ENV_SECRET: "Env secrets",
+  IBAN: "IBANs",
+  SEED_PHRASE: "Seed phrases",
+  BACKUP_CODE: "Backup codes",
+};
+
+export function redactionCategoryLabel(tag: string): string {
+  return REDACTION_CATEGORY_LABELS[tag] ?? tag.replaceAll("_", " ").toLowerCase();
+}
+
+/** Scrub emails, keys, passwords, cards, etc. from stored capture text. */
+export async function redactJarbasCapture(options: {
+  startDate: string;
+  endDate: string;
+}): Promise<RedactCaptureResult> {
+  return invoke<RedactCaptureResult>("redact_jarbas_capture", {
+    startDate: options.startDate,
+    endDate: options.endDate,
+  });
+}
+
+/** Last persisted redaction pass, if any. */
+export async function getLastRedaction(): Promise<RedactCaptureResult | null> {
+  return invoke<RedactCaptureResult | null>("get_last_redaction");
+}
+
+/** Every stored redaction pass, newest first. */
+export async function getRedactionHistory(): Promise<RedactCaptureResult[]> {
+  return invoke<RedactCaptureResult[]>("get_redaction_history");
+}
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
   const units = ["B", "KB", "MB", "GB", "TB"] as const;

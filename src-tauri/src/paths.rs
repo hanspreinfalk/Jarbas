@@ -137,6 +137,11 @@ impl JarbasPaths {
         Self::root().join("llm.json")
     }
 
+    /// Last sensitive-text redaction pass summary.
+    pub fn redaction_status() -> PathBuf {
+        Self::root().join("redaction.json")
+    }
+
     /// Screenpipe paired accessibility SQLite (`db.sqlite`) + snapshot `data/`.
     pub fn capture_dir() -> PathBuf {
         Self::root()

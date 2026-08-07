@@ -5,6 +5,7 @@ mod paths;
 mod pi_agent;
 mod pi_analysis;
 mod pi_chat;
+mod pii_redact;
 mod screenpipe;
 
 use serde::Serialize;
@@ -305,6 +306,9 @@ pub fn run() {
             screenpipe::capture_last_session,
             screenpipe::capture_storage_stats,
             data_reset::reset_jarbas_data,
+            pii_redact::redact_jarbas_capture,
+            pii_redact::get_last_redaction,
+            pii_redact::get_redaction_history,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

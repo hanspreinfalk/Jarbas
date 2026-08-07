@@ -38,6 +38,9 @@
     "allow-screenpipe-identify",
     "allow-capture-last-session",
     "allow-capture-storage-stats",
-    "allow-reset-jarbas-data"
+    "allow-reset-jarbas-data",
+    "allow-redact-jarbas-capture",
+    "allow-get-last-redaction",
+    "allow-get-redaction-history"
   ]
 }

@@ -6,8 +6,10 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  Loader2,
   RefreshCw,
   RotateCcw,
+  Shield,
   Trash2,
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
@@ -44,15 +46,21 @@ import {
   formatBytes,
   formatFrameCount,
   getCaptureStorageStats,
+  getLastRedaction,
+  getRedactionHistory,
+  redactJarbasCapture,
+  redactionCategoryLabel,
   resetJarbasData,
   screenpipe,
   type CaptureStorageStats,
+  type RedactCaptureResult,
   type ResetJarbasResult,
 } from "@/lib/screenpipe";
 import {
   DATE_RANGE_PRESETS,
   formatRangeLabel,
   toInputDate,
+  type RangePreset,
 } from "@/lib/date-range";
 import {
   Dialog,
@@ -86,6 +94,39 @@ const EMPTY_KEYS: KeyStatus[] = [
   { provider: "openai", label: "OpenAI", configured: false, value: "" },
   { provider: "google", label: "Gemini", configured: false, value: "" },
 ];
+
+function formatRedactionTimestamp(iso: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return iso;
+  return date.toLocaleString(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+}
+
+function formatDurationMs(ms: number | undefined): string {
+  if (!ms || ms <= 0) return "<1s";
+  if (ms < 1000) return `${ms}ms`;
+  const seconds = ms / 1000;
+  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rem = Math.round(seconds % 60);
+  return `${minutes}m ${rem}s`;
+}
+
+function redactionCountRows(
+  counts: Record<string, number> | undefined,
+): Array<{ tag: string; label: string; count: number }> {
+  if (!counts) return [];
+  return Object.entries(counts)
+    .filter(([, count]) => count > 0)
+    .map(([tag, count]) => ({
+      tag,
+      label: redactionCategoryLabel(tag),
+      count,
+    }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
+}
 
 function agentStatusCopy(status: PiAgentStatus | undefined): {
   label: string;
@@ -249,11 +290,30 @@ export function SettingsPage() {
   const [savingProvider, setSavingProvider] = useState<LlmProvider | null>(null);
   const [rangeOpen, setRangeOpen] = useState(false);
   const [fullOpen, setFullOpen] = useState(false);
+  const [redactOpen, setRedactOpen] = useState(false);
+  const [redactDetailsOpen, setRedactDetailsOpen] = useState(false);
+  const [redactPresetId, setRedactPresetId] = useState<string | "custom">(
+    "today",
+  );
+  const [redactStartDate, setRedactStartDate] = useState(() =>
+    toInputDate(new Date()),
+  );
+  const [redactEndDate, setRedactEndDate] = useState(() =>
+    toInputDate(new Date()),
+  );
   const [resetting, setResetting] = useState(false);
+  const [redacting, setRedacting] = useState(false);
   const [replayingOnboarding, setReplayingOnboarding] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
+  const [redactError, setRedactError] = useState<string | null>(null);
+  const [redactionHistory, setRedactionHistory] = useState<
+    RedactCaptureResult[]
+  >([]);
+  const [selectedRedactionId, setSelectedRedactionId] = useState<string | null>(
+    null,
+  );
   const [presetId, setPresetId] = useState<string | "custom">("last-14");
   const [startDate, setStartDate] = useState(() => {
     const start = new Date();
@@ -268,11 +328,38 @@ export function SettingsPage() {
   const [accessibilityInfo, setAccessibilityInfo] =
     useState<AccessibilityPermissionStatus | null>(null);
 
+  const lastRedaction = redactionHistory[0] ?? null;
+  const selectedRedaction =
+    redactionHistory.find((run) => (run.id || run.completedAt) === selectedRedactionId) ??
+    lastRedaction;
+
   const refreshStorage = useCallback(async () => {
     try {
       setStorage(await getCaptureStorageStats());
     } catch {
       setStorage({ root: "~/.jarbas", bytes: 0, frames: 0 });
+    }
+  }, []);
+
+  const refreshRedactionHistory = useCallback(async () => {
+    try {
+      const history = await getRedactionHistory();
+      setRedactionHistory(history);
+      setSelectedRedactionId((current) => {
+        if (current && history.some((run) => (run.id || run.completedAt) === current)) {
+          return current;
+        }
+        return history[0] ? history[0].id || history[0].completedAt : null;
+      });
+    } catch {
+      try {
+        const last = await getLastRedaction();
+        setRedactionHistory(last ? [last] : []);
+        setSelectedRedactionId(last ? last.id || last.completedAt : null);
+      } catch {
+        setRedactionHistory([]);
+        setSelectedRedactionId(null);
+      }
     }
   }, []);
 
@@ -332,6 +419,57 @@ export function SettingsPage() {
     }
   }
 
+  const applyRedactPreset = useCallback((preset: RangePreset) => {
+    const { start, end } = preset.getRange();
+    setRedactPresetId(preset.id);
+    setRedactStartDate(toInputDate(start));
+    setRedactEndDate(toInputDate(end));
+  }, []);
+
+  useEffect(() => {
+    if (!redactOpen) return;
+    applyRedactPreset(DATE_RANGE_PRESETS[0]);
+    setRedactError(null);
+    setRedacting(false);
+  }, [redactOpen, applyRedactPreset]);
+
+  async function handleRedactCapture() {
+    if (
+      redacting ||
+      !redactStartDate ||
+      !redactEndDate ||
+      redactStartDate > redactEndDate
+    ) {
+      return;
+    }
+    setRedacting(true);
+    setRedactError(null);
+    try {
+      // Let React paint the loader before the heavy IPC call starts.
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+      });
+      await stopCaptureQuietly();
+      const result: RedactCaptureResult = await redactJarbasCapture({
+        startDate: redactStartDate,
+        endDate: redactEndDate,
+      });
+      setRedactionHistory((current) => [result, ...current]);
+      setSelectedRedactionId(result.id || result.completedAt);
+      setRedactOpen(false);
+      await refreshStorage();
+      await refreshRedactionHistory();
+    } catch (error) {
+      setRedactError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setRedacting(false);
+    }
+  }
+
+  const redactRangeValid = Boolean(
+    redactStartDate && redactEndDate && redactStartDate <= redactEndDate,
+  );
+
   const refreshPermissions = useCallback(async () => {
     const [screenOk, accessibilityStatus] = await Promise.all([
       screenpipe
@@ -376,6 +514,10 @@ export function SettingsPage() {
   useEffect(() => {
     void refreshStorage();
   }, [refreshStorage]);
+
+  useEffect(() => {
+    void refreshRedactionHistory();
+  }, [refreshRedactionHistory]);
 
   useEffect(() => {
     let cancelled = false;
@@ -473,7 +615,7 @@ export function SettingsPage() {
         Settings
       </h1>
       <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-        Theme, keys, Ask setup, onboarding, and local storage.
+        Theme, keys, Ask setup, privacy, onboarding, and local storage.
       </p>
 
       <section className="mt-10">
@@ -686,6 +828,78 @@ export function SettingsPage() {
       </section>
 
       <section className="mt-8">
+        <p className="label-caps text-primary">Redaction</p>
+        <div className="mt-2 border border-border bg-card">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Sensitive text
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Scrub emails, phone numbers, cards, API keys, passwords, and
+              similar secrets from stored capture text.
+            </p>
+          </div>
+          <div className="px-4 py-4">
+            <p className="text-sm text-muted-foreground">
+              Replaces matches with tags like [EMAIL]. Frames and videos stay.
+              This cannot be undone.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-none"
+                disabled={redacting}
+                onClick={() => {
+                  setRedactError(null);
+                  setRedactOpen(true);
+                }}
+              >
+                <Shield className="size-3.5" />
+                Redact sensitive text
+              </Button>
+            </div>
+            {lastRedaction ? (
+              <div className="mt-3 border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p>{lastRedaction.message}</p>
+                    <p className="mt-1 text-muted-foreground">
+                      Last pass{" "}
+                      {formatRedactionTimestamp(lastRedaction.completedAt)}
+                      {redactionHistory.length > 1
+                        ? ` · ${redactionHistory.length} runs saved`
+                        : null}
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="shrink-0 rounded-none text-muted-foreground"
+                    onClick={() => {
+                      setSelectedRedactionId(
+                        lastRedaction.id || lastRedaction.completedAt,
+                      );
+                      setRedactDetailsOpen(true);
+                    }}
+                  >
+                    History
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+            {redactError && !redactOpen ? (
+              <p className="mt-3 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+                {redactError}
+              </p>
+            ) : null}
+          </div>
+        </div>
+      </section>
+
+      <section className="mt-8">
         <p className="label-caps text-primary">Storage</p>
         <div className="mt-2 border border-border bg-card">
           <div className="border-b border-border px-4 py-3">
@@ -874,6 +1088,335 @@ export function SettingsPage() {
               onClick={() => void handleRangeDelete()}
             >
               {resetting ? "Deleting…" : "Delete range"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={redactDetailsOpen}
+        onOpenChange={(open) => {
+          setRedactDetailsOpen(open);
+          if (open && lastRedaction) {
+            setSelectedRedactionId(
+              selectedRedactionId ??
+                lastRedaction.id ??
+                lastRedaction.completedAt,
+            );
+          }
+        }}
+      >
+        <DialogContent className="rounded-none sm:max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Redaction history</DialogTitle>
+            <DialogDescription>
+              Every redaction pass saved on {thisComputerPhrase()}, newest
+              first.
+            </DialogDescription>
+          </DialogHeader>
+
+          {redactionHistory.length > 0 ? (
+            <div className="grid gap-4 sm:grid-cols-[13rem_minmax(0,1fr)]">
+              <div className="max-h-80 overflow-y-auto border border-border">
+                <ul className="divide-y divide-border">
+                  {redactionHistory.map((run) => {
+                    const runId = run.id || run.completedAt;
+                    const active =
+                      (selectedRedaction?.id ||
+                        selectedRedaction?.completedAt) === runId;
+                    return (
+                      <li key={runId}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedRedactionId(runId)}
+                          className={cn(
+                            "w-full px-3 py-2.5 text-left text-sm transition-colors",
+                            active
+                              ? "bg-foreground text-background"
+                              : "bg-card text-foreground hover:bg-muted",
+                          )}
+                        >
+                          <p className="font-medium">
+                            {formatRedactionTimestamp(run.completedAt)}
+                          </p>
+                          <p
+                            className={cn(
+                              "mt-0.5 text-xs",
+                              active
+                                ? "text-background/70"
+                                : "text-muted-foreground",
+                            )}
+                          >
+                            {run.startDate && run.endDate
+                              ? formatRangeLabel(run.startDate, run.endDate)
+                              : "Range unknown"}
+                            {" · "}
+                            {new Intl.NumberFormat(undefined).format(
+                              run.totalMatches ?? 0,
+                            )}{" "}
+                            matches
+                          </p>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </div>
+
+              {selectedRedaction ? (
+                <div className="min-w-0 space-y-4">
+                  <p className="text-sm text-foreground">
+                    {selectedRedaction.message}
+                  </p>
+                  <div className="grid grid-cols-2 gap-px border border-border bg-border">
+                    <div className="bg-card px-3 py-3">
+                      <p className="label-caps text-muted-foreground">Started</p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {selectedRedaction.startedAt
+                          ? formatRedactionTimestamp(selectedRedaction.startedAt)
+                          : "—"}
+                      </p>
+                    </div>
+                    <div className="bg-card px-3 py-3">
+                      <p className="label-caps text-muted-foreground">
+                        Finished
+                      </p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {formatRedactionTimestamp(selectedRedaction.completedAt)}
+                      </p>
+                    </div>
+                    <div className="bg-card px-3 py-3">
+                      <p className="label-caps text-muted-foreground">Range</p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {selectedRedaction.startDate &&
+                        selectedRedaction.endDate
+                          ? formatRangeLabel(
+                              selectedRedaction.startDate,
+                              selectedRedaction.endDate,
+                            )
+                          : "—"}
+                      </p>
+                    </div>
+                    <div className="bg-card px-3 py-3">
+                      <p className="label-caps text-muted-foreground">
+                        Duration
+                      </p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {formatDurationMs(selectedRedaction.durationMs)}
+                      </p>
+                    </div>
+                    <div className="bg-card px-3 py-3">
+                      <p className="label-caps text-muted-foreground">Matches</p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {new Intl.NumberFormat(undefined).format(
+                          selectedRedaction.totalMatches ?? 0,
+                        )}
+                      </p>
+                    </div>
+                    <div className="bg-card px-3 py-3">
+                      <p className="label-caps text-muted-foreground">
+                        Fields scanned
+                      </p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {new Intl.NumberFormat(undefined).format(
+                          selectedRedaction.scannedRows,
+                        )}
+                      </p>
+                    </div>
+                    <div className="bg-card px-3 py-3 col-span-2">
+                      <p className="label-caps text-muted-foreground">
+                        Fields updated
+                      </p>
+                      <p className="mt-1 text-sm text-foreground">
+                        {new Intl.NumberFormat(undefined).format(
+                          selectedRedaction.updatedRows,
+                        )}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="label-caps text-muted-foreground">
+                      By category
+                    </p>
+                    {redactionCountRows(selectedRedaction.counts).length > 0 ? (
+                      <ul className="mt-2 max-h-48 divide-y divide-border overflow-y-auto border border-border">
+                        {redactionCountRows(selectedRedaction.counts).map(
+                          (row) => (
+                            <li
+                              key={row.tag}
+                              className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
+                            >
+                              <span className="text-foreground">
+                                {row.label}
+                              </span>
+                              <span className="tabular-nums text-muted-foreground">
+                                {new Intl.NumberFormat(undefined).format(
+                                  row.count,
+                                )}
+                              </span>
+                            </li>
+                          ),
+                        )}
+                      </ul>
+                    ) : (
+                      <p className="mt-2 border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                        No category matches were recorded for this pass.
+                      </p>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <p className="border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+              No redaction runs saved yet.
+            </p>
+          )}
+
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              onClick={() => setRedactDetailsOpen(false)}
+            >
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={redactOpen}
+        onOpenChange={(open) => {
+          if (redacting) return;
+          setRedactOpen(open);
+        }}
+      >
+        <DialogContent
+          className="rounded-none sm:max-w-lg"
+          showCloseButton={!redacting}
+        >
+          <DialogHeader>
+            <DialogTitle>
+              {redacting ? "Redacting sensitive text" : "Redact sensitive text"}
+            </DialogTitle>
+            <DialogDescription>
+              {redacting
+                ? "Scanning stored capture text for this range. The app is still working."
+                : "Choose a timeframe, then scrub emails, phone numbers, cards, API keys, passwords, and similar secrets. Frames and videos stay. This cannot be undone."}
+            </DialogDescription>
+          </DialogHeader>
+
+          {redacting ? (
+            <div className="flex items-center gap-3 border border-border bg-muted/40 px-3 py-3 text-sm text-foreground">
+              <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
+              <div className="min-w-0">
+                <p className="font-medium">Working…</p>
+                <p className="mt-0.5 text-muted-foreground">
+                  Scrubbing {formatRangeLabel(redactStartDate, redactEndDate)}.
+                  This can take a bit on large libraries.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              <div>
+                <p className="label-caps text-muted-foreground">Suggestions</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {DATE_RANGE_PRESETS.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => applyRedactPreset(preset)}
+                      className={cn(
+                        "border px-2.5 py-1.5 text-xs font-medium transition-colors",
+                        redactPresetId === preset.id
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border bg-background text-foreground hover:bg-muted",
+                      )}
+                    >
+                      {preset.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="label-caps text-muted-foreground">Custom range</p>
+                <div className="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label className="space-y-1.5">
+                    <span className="text-xs text-muted-foreground">Start</span>
+                    <Input
+                      type="date"
+                      value={redactStartDate}
+                      onChange={(event) => {
+                        setRedactPresetId("custom");
+                        setRedactStartDate(event.target.value);
+                      }}
+                      className="rounded-none"
+                    />
+                  </label>
+                  <label className="space-y-1.5">
+                    <span className="text-xs text-muted-foreground">End</span>
+                    <Input
+                      type="date"
+                      value={redactEndDate}
+                      onChange={(event) => {
+                        setRedactPresetId("custom");
+                        setRedactEndDate(event.target.value);
+                      }}
+                      className="rounded-none"
+                    />
+                  </label>
+                </div>
+                {!redactRangeValid ? (
+                  <p className="mt-2 text-xs text-destructive">
+                    End date must be on or after start date.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Selected · {formatRangeLabel(redactStartDate, redactEndDate)}
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {redactError ? (
+            <p className="border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+              {redactError}
+            </p>
+          ) : null}
+
+          <DialogFooter className="gap-2 sm:justify-between">
+            <Button
+              type="button"
+              variant="outline"
+              className="rounded-none"
+              disabled={redacting}
+              onClick={() => setRedactOpen(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="rounded-none"
+              disabled={redacting || !redactRangeValid}
+              onClick={() => void handleRedactCapture()}
+            >
+              {redacting ? (
+                <>
+                  <Loader2 className="size-3.5 animate-spin" />
+                  Redacting…
+                </>
+              ) : (
+                <>
+                  <Shield className="size-3.5" />
+                  Redact range
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>
