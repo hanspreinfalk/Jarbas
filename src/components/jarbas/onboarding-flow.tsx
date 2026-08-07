@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ArrowRight,
+  Check,
   Eye,
   ExternalLink,
   Lock,
@@ -8,11 +9,16 @@ import {
   Sparkles,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { completeOnboarding } from "@/lib/onboarding";
-import { openPrivacySettings } from "@/lib/privacy-settings";
+import {
+  checkAccessibilityPermission,
+  openPrivacySettings,
+} from "@/lib/privacy-settings";
+import { screenpipe } from "@/lib/screenpipe";
 import { cn } from "@/lib/utils";
 
 type Step = "welcome" | "permissions";
+
+type PermissionId = "screen-recording" | "accessibility";
 
 const PILLARS = [
   {
@@ -34,25 +40,69 @@ const PILLARS = [
 
 const PERMISSIONS = [
   {
-    id: "screen-recording",
+    id: "screen-recording" as const,
     label: "Screen Recording",
     description: "Capture what is on screen.",
     pane: "screen-recording",
   },
   {
-    id: "accessibility",
+    id: "accessibility" as const,
     label: "Accessibility",
     description: "Read UI and app context.",
     pane: "accessibility",
   },
-] as const;
+];
 
 export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
   const [step, setStep] = useState<Step>("welcome");
-  const [opened, setOpened] = useState<Record<string, boolean>>({});
+  const [granted, setGranted] = useState<Record<PermissionId, boolean>>({
+    "screen-recording": false,
+    accessibility: false,
+  });
+
+  const refreshPermissions = useCallback(async () => {
+    const [screenOk, accessibilityOk] = await Promise.all([
+      screenpipe
+        .permissions({ timeoutMs: 7500 })
+        .then((status) => Boolean(status.screen))
+        .catch(() => false),
+      checkAccessibilityPermission(),
+    ]);
+
+    setGranted({
+      "screen-recording": screenOk,
+      accessibility: accessibilityOk,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (step !== "permissions") return;
+
+    void refreshPermissions();
+
+    function onFocus() {
+      void refreshPermissions();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void refreshPermissions();
+      }
+    }
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    const poll = window.setInterval(() => {
+      void refreshPermissions();
+    }, 2500);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(poll);
+    };
+  }, [refreshPermissions, step]);
 
   function finish() {
-    completeOnboarding();
     onComplete();
   }
 
@@ -68,7 +118,7 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
           </span>
         </div>
         <p className="label-caps text-muted-foreground">
-          {step === "welcome" ? "01 · Welcome" : "02 · Permissions"}
+          {step === "welcome" ? "03 · Welcome" : "04 · Permissions"}
         </p>
       </header>
 
@@ -132,15 +182,26 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
 
               <ul className="mt-8 divide-y divide-border border border-border bg-card">
                 {PERMISSIONS.map((permission) => {
-                  const isOpen = opened[permission.id];
+                  const isGranted = granted[permission.id];
                   return (
                     <li
                       key={permission.id}
                       className="flex flex-col gap-3 px-4 py-4 sm:flex-row sm:items-start sm:justify-between"
                     >
                       <div className="flex min-w-0 gap-3">
-                        <span className="mt-0.5 flex size-8 shrink-0 items-center justify-center border border-border bg-muted text-foreground">
-                          <Eye className="size-4" />
+                        <span
+                          className={cn(
+                            "mt-0.5 flex size-8 shrink-0 items-center justify-center border text-foreground",
+                            isGranted
+                              ? "border-foreground bg-foreground text-background"
+                              : "border-border bg-muted",
+                          )}
+                        >
+                          {isGranted ? (
+                            <Check className="size-4" strokeWidth={2.5} />
+                          ) : (
+                            <Eye className="size-4" />
+                          )}
                         </span>
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
@@ -150,12 +211,12 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
                             <span
                               className={cn(
                                 "label-caps border px-1.5 py-0.5 text-[10px]",
-                                isOpen
+                                isGranted
                                   ? "border-foreground bg-foreground text-background"
                                   : "border-border bg-muted text-muted-foreground",
                               )}
                             >
-                              {isOpen ? "Opened" : "Required"}
+                              {isGranted ? "Granted" : "Required"}
                             </span>
                           </div>
                           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
@@ -163,22 +224,27 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
                           </p>
                         </div>
                       </div>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        className="shrink-0 rounded-none"
-                        onClick={() => {
-                          void openPrivacySettings(permission.pane);
-                          setOpened((current) => ({
-                            ...current,
-                            [permission.id]: true,
-                          }));
-                        }}
-                      >
-                        Open Settings
-                        <ExternalLink className="size-3.5" />
-                      </Button>
+                      {isGranted ? (
+                        <div className="flex h-8 shrink-0 items-center gap-1.5 px-1 text-sm font-medium text-foreground">
+                          <Check className="size-4" strokeWidth={2.5} />
+                          Granted
+                        </div>
+                      ) : (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 rounded-none"
+                          onClick={() => {
+                            void openPrivacySettings(permission.pane).then(() => {
+                              void refreshPermissions();
+                            });
+                          }}
+                        >
+                          Open Settings
+                          <ExternalLink className="size-3.5" />
+                        </Button>
+                      )}
                     </li>
                   );
                 })}

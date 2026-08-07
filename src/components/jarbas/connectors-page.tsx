@@ -1,13 +1,17 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ChevronLeft,
   ChevronRight,
+  ExternalLink,
   Plus,
   Search,
   Settings2,
   Trash2,
 } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { useUser } from "@clerk/clerk-react";
+import { useMutation } from "convex/react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -17,6 +21,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { api } from "@convex/_generated/api";
+import { composioLogoUrl } from "@/lib/app-logos";
 
 type ComposioToolkit = {
   name: string;
@@ -30,15 +36,19 @@ type ComposioToolkit = {
   no_auth?: boolean;
 };
 
-type ConnectedAccount = {
+type ComposioConnectedAccount = {
   id: string;
+  toolkitSlug: string;
+  status: string;
+  alias?: string | null;
+  wordId?: string | null;
   label: string;
-  email: string;
+  detail: string;
 };
 
 type ConnectedToolkit = {
   toolkit: ComposioToolkit;
-  accounts: ConnectedAccount[];
+  accounts: ComposioConnectedAccount[];
 };
 
 type ToolkitListResponse = {
@@ -49,36 +59,41 @@ type ToolkitListResponse = {
   totalItems: number;
 };
 
-const PAGE_SIZE = 24;
-const CONNECTED_KEY = "jarbas.connected-toolkits.v2";
+type ConnectedAccountsResponse = {
+  items: ComposioConnectedAccount[];
+};
 
-function makeAccount(toolkitName: string, index: number): ConnectedAccount {
-  const n = index + 1;
-  const slug = toolkitName.toLowerCase().replace(/[^a-z0-9]+/g, "");
+type ConnectLinkResponse = {
+  redirectUrl: string;
+  connectedAccountId: string;
+  expiresAt?: string | null;
+};
+
+const PAGE_SIZE = 24;
+const LEGACY_CONNECTED_KEY = "jarbas.connected-toolkits.v2";
+
+function toolkitMeta(slug: string, catalog: ComposioToolkit[]): ComposioToolkit {
+  const found = catalog.find((item) => item.slug === slug);
+  if (found) return found;
   return {
-    id: `${Date.now()}-${n}-${Math.random().toString(36).slice(2, 7)}`,
-    label: n === 1 ? "Primary" : `Account ${n}`,
-    email: `you${n === 1 ? "" : n}@${slug || "app"}.com`,
+    name: slug
+      .split(/[_-]/)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" "),
+    slug,
+    meta: {
+      logo: composioLogoUrl(slug),
+    },
   };
 }
 
-function loadConnected(): ConnectedToolkit[] {
-  try {
-    const raw = localStorage.getItem(CONNECTED_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as ConnectedToolkit[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
 function ToolkitLogo({ toolkit }: { toolkit: ComposioToolkit }) {
+  const logo = toolkit.meta?.logo ?? composioLogoUrl(toolkit.slug);
   return (
     <span className="flex size-10 shrink-0 items-center justify-center border border-border bg-background">
-      {toolkit.meta?.logo ? (
+      {logo ? (
         <img
-          src={toolkit.meta.logo}
+          src={logo}
           alt=""
           className="size-6 object-contain"
           loading="lazy"
@@ -95,6 +110,7 @@ function ToolkitLogo({ toolkit }: { toolkit: ComposioToolkit }) {
 function ManageAccountsDialog({
   open,
   connection,
+  busy,
   onOpenChange,
   onAddAccount,
   onDisconnectAccount,
@@ -102,6 +118,7 @@ function ManageAccountsDialog({
 }: {
   open: boolean;
   connection: ConnectedToolkit | null;
+  busy: boolean;
   onOpenChange: (open: boolean) => void;
   onAddAccount: () => void;
   onDisconnectAccount: (accountId: string) => void;
@@ -123,7 +140,7 @@ function ManageAccountsDialog({
             </span>
           </DialogTitle>
           <DialogDescription>
-            Add more accounts or disconnect any of them.
+            Add another account or disconnect an existing one.
           </DialogDescription>
         </DialogHeader>
 
@@ -144,7 +161,7 @@ function ManageAccountsDialog({
                       {account.label}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
-                      {account.email}
+                      {account.detail}
                     </p>
                   </div>
                   <Button
@@ -152,6 +169,7 @@ function ManageAccountsDialog({
                     variant="ghost"
                     size="sm"
                     className="rounded-none text-muted-foreground hover:text-destructive"
+                    disabled={busy}
                     onClick={() => onDisconnectAccount(account.id)}
                   >
                     <Trash2 className="size-3.5" />
@@ -169,6 +187,7 @@ function ManageAccountsDialog({
             variant="outline"
             size="sm"
             className="rounded-none sm:flex-1"
+            disabled={busy}
             onClick={onAddAccount}
           >
             <Plus className="size-3.5" />
@@ -179,6 +198,7 @@ function ManageAccountsDialog({
             variant="outline"
             size="sm"
             className="rounded-none text-destructive hover:bg-destructive/10 hover:text-destructive sm:flex-1"
+            disabled={busy || connection.accounts.length === 0}
             onClick={onDisconnectAll}
           >
             Disconnect all
@@ -190,8 +210,15 @@ function ManageAccountsDialog({
 }
 
 export function ConnectorsPage() {
+  const { user } = useUser();
+  const ensureComposioUserId = useMutation(api.user.ensureComposioUserId);
+  const composioUserId = user?.id ?? null;
+
   const [items, setItems] = useState<ComposioToolkit[]>([]);
-  const [connected, setConnected] = useState<ConnectedToolkit[]>(loadConnected);
+  const [accounts, setAccounts] = useState<ComposioConnectedAccount[]>([]);
+  const [connectedLoading, setConnectedLoading] = useState(true);
+  const [actionBusy, setActionBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [managingSlug, setManagingSlug] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -205,12 +232,84 @@ export function ConnectorsPage() {
   );
   const [nextReady, setNextReady] = useState(false);
 
-  const connectedSlugs = new Set(connected.map((item) => item.toolkit.slug));
-  const managing = connected.find((item) => item.toolkit.slug === managingSlug) ?? null;
+  useEffect(() => {
+    try {
+      localStorage.removeItem(LEGACY_CONNECTED_KEY);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  const refreshConnected = useCallback(async () => {
+    if (!composioUserId) {
+      setAccounts([]);
+      setConnectedLoading(false);
+      return;
+    }
+
+    setConnectedLoading(true);
+    try {
+      const response = await invoke<ConnectedAccountsResponse>(
+        "list_composio_connected_accounts",
+        { userId: composioUserId },
+      );
+      setAccounts(response.items);
+      setActionError(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setConnectedLoading(false);
+    }
+  }, [composioUserId]);
 
   useEffect(() => {
-    localStorage.setItem(CONNECTED_KEY, JSON.stringify(connected));
-  }, [connected]);
+    void refreshConnected();
+  }, [refreshConnected]);
+
+  useEffect(() => {
+    function onFocus() {
+      void refreshConnected();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void refreshConnected();
+      }
+    }
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [refreshConnected]);
+
+  const connected = useMemo<ConnectedToolkit[]>(() => {
+    const bySlug = new Map<string, ComposioConnectedAccount[]>();
+    for (const account of accounts) {
+      if (account.status !== "ACTIVE" && account.status !== "INITIALIZING" && account.status !== "INITIATED") {
+        continue;
+      }
+      const list = bySlug.get(account.toolkitSlug) ?? [];
+      list.push(account);
+      bySlug.set(account.toolkitSlug, list);
+    }
+
+    return Array.from(bySlug.entries())
+      .map(([slug, toolkitAccounts]) => ({
+        toolkit: toolkitMeta(slug, items),
+        accounts: toolkitAccounts.filter((account) => account.status === "ACTIVE").length
+          ? toolkitAccounts.filter((account) => account.status === "ACTIVE")
+          : toolkitAccounts,
+      }))
+      .sort((a, b) => a.toolkit.name.localeCompare(b.toolkit.name));
+  }, [accounts, items]);
+
+  const connectedSlugs = useMemo(
+    () => new Set(connected.map((item) => item.toolkit.slug)),
+    [connected],
+  );
+  const managing =
+    connected.find((item) => item.toolkit.slug === managingSlug) ?? null;
 
   useEffect(() => {
     const id = window.setTimeout(() => {
@@ -227,18 +326,18 @@ export function ConnectorsPage() {
     async function load() {
       setLoading(true);
       setError(null);
-      setNextReady(false);
       try {
+        const cursor = cursorByPage.current.get(page);
         const response = await invoke<ToolkitListResponse>(
           "list_composio_toolkits",
           {
-            cursor: cursorByPage.current.get(page) ?? null,
+            cursor: cursor ?? null,
             limit: PAGE_SIZE,
             search: search || null,
           },
         );
         if (cancelled) return;
-        setItems(Array.isArray(response.items) ? response.items : []);
+        setItems(response.items);
         setTotalPages(Math.max(1, response.totalPages));
         setTotalItems(response.totalItems);
         if (response.nextCursor) {
@@ -263,54 +362,63 @@ export function ConnectorsPage() {
     };
   }, [page, search]);
 
-  function connectToolkit(toolkit: ComposioToolkit) {
-    setConnected((prev) => {
-      const existing = prev.find((item) => item.toolkit.slug === toolkit.slug);
-      if (existing) {
-        setManagingSlug(toolkit.slug);
-        return prev;
-      }
-      const next: ConnectedToolkit = {
-        toolkit,
-        accounts: [makeAccount(toolkit.name, 0)],
-      };
+  async function startConnect(toolkit: ComposioToolkit) {
+    if (!composioUserId) {
+      setActionError("Sign in to connect apps.");
+      return;
+    }
+
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      await ensureComposioUserId();
+      const link = await invoke<ConnectLinkResponse>(
+        "create_composio_connect_link",
+        {
+          userId: composioUserId,
+          toolkitSlug: toolkit.slug,
+        },
+      );
+      await openUrl(link.redirectUrl);
       setManagingSlug(toolkit.slug);
-      return [next, ...prev];
-    });
+      await refreshConnected();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionBusy(false);
+    }
   }
 
-  function addAccount(slug: string) {
-    setConnected((prev) =>
-      prev.map((item) => {
-        if (item.toolkit.slug !== slug) return item;
-        return {
-          ...item,
-          accounts: [
-            ...item.accounts,
-            makeAccount(item.toolkit.name, item.accounts.length),
-          ],
-        };
-      }),
-    );
+  async function disconnectAccount(accountId: string) {
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      await invoke("delete_composio_connected_account", { accountId });
+      await refreshConnected();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionBusy(false);
+    }
   }
 
-  function disconnectAccount(slug: string, accountId: string) {
-    setConnected((prev) =>
-      prev
-        .map((item) => {
-          if (item.toolkit.slug !== slug) return item;
-          return {
-            ...item,
-            accounts: item.accounts.filter((account) => account.id !== accountId),
-          };
-        })
-        .filter((item) => item.accounts.length > 0),
-    );
-  }
-
-  function disconnectAll(slug: string) {
-    setConnected((prev) => prev.filter((item) => item.toolkit.slug !== slug));
-    setManagingSlug(null);
+  async function disconnectAll(slug: string) {
+    const targets = accounts.filter((account) => account.toolkitSlug === slug);
+    setActionBusy(true);
+    setActionError(null);
+    try {
+      for (const account of targets) {
+        await invoke("delete_composio_connected_account", {
+          accountId: account.id,
+        });
+      }
+      setManagingSlug(null);
+      await refreshConnected();
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setActionBusy(false);
+    }
   }
 
   const canGoPrev = page > 1 && !loading;
@@ -341,6 +449,12 @@ export function ConnectorsPage() {
         </p>
       </div>
 
+      {actionError ? (
+        <div className="mt-6 border border-border bg-card px-4 py-3 text-sm text-destructive">
+          {actionError}
+        </div>
+      ) : null}
+
       <section className="mt-8 border border-border bg-card">
         <div className="border-b border-border px-4 py-3">
           <p className="label-caps text-muted-foreground">Connected</p>
@@ -348,12 +462,23 @@ export function ConnectorsPage() {
             Your apps
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            {connected.length === 0
-              ? "No apps connected yet."
-              : `${connected.length} apps · ${totalAccounts} accounts`}
+            {connectedLoading
+              ? "Loading connections…"
+              : connected.length === 0
+                ? "No apps connected yet."
+                : `${connected.length} apps · ${totalAccounts} accounts`}
           </p>
         </div>
-        {connected.length === 0 ? (
+        {connectedLoading ? (
+          <div className="grid grid-cols-1 gap-3 p-3 sm:grid-cols-2 lg:grid-cols-3">
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div
+                key={`connected-skeleton-${index}`}
+                className="h-28 animate-pulse border border-border bg-background"
+              />
+            ))}
+          </div>
+        ) : connected.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-muted-foreground">
             Nothing connected yet.
           </div>
@@ -397,7 +522,8 @@ export function ConnectorsPage() {
                     variant="outline"
                     size="sm"
                     className="rounded-none"
-                    onClick={() => addAccount(connection.toolkit.slug)}
+                    disabled={actionBusy}
+                    onClick={() => void startConnect(connection.toolkit)}
                     title="Add account"
                   >
                     <Plus className="size-3.5" />
@@ -491,9 +617,11 @@ export function ConnectorsPage() {
                             variant="outline"
                             size="sm"
                             className="w-full rounded-none"
-                            onClick={() => connectToolkit(toolkit)}
+                            disabled={actionBusy || toolkit.no_auth}
+                            onClick={() => void startConnect(toolkit)}
                           >
-                            Connect
+                            <ExternalLink className="size-3.5" />
+                            {actionBusy ? "Opening…" : "Connect"}
                           </Button>
                         )}
                       </article>
@@ -541,17 +669,18 @@ export function ConnectorsPage() {
       <ManageAccountsDialog
         open={Boolean(managing)}
         connection={managing}
+        busy={actionBusy}
         onOpenChange={(open) => {
           if (!open) setManagingSlug(null);
         }}
         onAddAccount={() => {
-          if (managingSlug) addAccount(managingSlug);
+          if (managing) void startConnect(managing.toolkit);
         }}
         onDisconnectAccount={(accountId) => {
-          if (managingSlug) disconnectAccount(managingSlug, accountId);
+          void disconnectAccount(accountId);
         }}
         onDisconnectAll={() => {
-          if (managingSlug) disconnectAll(managingSlug);
+          if (managingSlug) void disconnectAll(managingSlug);
         }}
       />
     </div>

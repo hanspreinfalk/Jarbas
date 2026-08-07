@@ -1,3 +1,4 @@
+mod composio;
 mod llm_settings;
 mod paths;
 mod pi_agent;
@@ -43,6 +44,39 @@ fn open_privacy_settings(pane: String) -> Result<(), String> {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+struct AccessibilityPermissionStatus {
+    granted: bool,
+}
+
+#[tauri::command]
+fn check_accessibility_permission() -> AccessibilityPermissionStatus {
+    #[cfg(target_os = "macos")]
+    {
+        // macOS `Boolean` is a C unsigned char, not a Rust `bool`.
+        // Declaring this as `bool` can falsely report "not trusted".
+        #[link(name = "ApplicationServices", kind = "framework")]
+        extern "C" {
+            fn AXIsProcessTrusted() -> u8;
+            fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> u8;
+        }
+
+        let granted = unsafe {
+            let with_options = AXIsProcessTrustedWithOptions(std::ptr::null());
+            let basic = AXIsProcessTrusted();
+            with_options != 0 || basic != 0
+        };
+
+        return AccessibilityPermissionStatus { granted };
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        AccessibilityPermissionStatus { granted: false }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 struct ToolkitListResponse {
     items: Value,
     next_cursor: Option<String>,
@@ -57,7 +91,7 @@ fn load_env() {
     let _ = dotenvy::from_filename(".env");
 }
 
-fn composio_api_key() -> Result<String, String> {
+pub(crate) fn composio_api_key() -> Result<String, String> {
     load_env();
     std::env::var("COMPOSIO_API_KEY")
         .map_err(|_| "COMPOSIO_API_KEY is not set. Add it to .env in the project root.".into())
@@ -143,7 +177,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             open_privacy_settings,
+            check_accessibility_permission,
             list_composio_toolkits,
+            composio::list_composio_connected_accounts,
+            composio::create_composio_connect_link,
+            composio::delete_composio_connected_account,
             pi_agent::get_pi_agent_status,
             pi_agent::ensure_pi_agent_installed,
             llm_settings::get_llm_settings,

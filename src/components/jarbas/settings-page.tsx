@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Check,
   Copy,
@@ -20,7 +20,10 @@ import {
   type LlmProvider,
   type LlmSettings,
 } from "@/lib/llm-settings";
-import { openPrivacySettings } from "@/lib/privacy-settings";
+import {
+  checkAccessibilityPermission,
+  openPrivacySettings,
+} from "@/lib/privacy-settings";
 import {
   ensurePiAgentInstalled,
   getPiAgentStatus,
@@ -32,26 +35,27 @@ import {
   formatBytes,
   formatFrameCount,
   getCaptureStorageStats,
+  screenpipe,
   type CaptureStorageStats,
 } from "@/lib/screenpipe";
 import { cn } from "@/lib/utils";
 
+type PermissionId = "screen-recording" | "accessibility";
+
 const PERMISSIONS = [
   {
-    id: "screen-recording",
+    id: "screen-recording" as const,
     label: "Screen Recording",
     description: "Capture what is on screen.",
-    status: "Required",
     pane: "screen-recording",
   },
   {
-    id: "accessibility",
+    id: "accessibility" as const,
     label: "Accessibility",
     description: "Read UI elements and app context.",
-    status: "Required",
     pane: "accessibility",
   },
-] as const;
+];
 
 const EMPTY_KEYS: KeyStatus[] = [
   { provider: "anthropic", label: "Anthropic", configured: false, value: "" },
@@ -218,6 +222,50 @@ export function SettingsPage() {
   const [storage, setStorage] = useState<CaptureStorageStats | null>(null);
   const [busy, setBusy] = useState(false);
   const [savingProvider, setSavingProvider] = useState<LlmProvider | null>(null);
+  const [granted, setGranted] = useState<Record<PermissionId, boolean>>({
+    "screen-recording": false,
+    accessibility: false,
+  });
+
+  const refreshPermissions = useCallback(async () => {
+    const [screenOk, accessibilityOk] = await Promise.all([
+      screenpipe
+        .permissions({ timeoutMs: 7500 })
+        .then((status) => Boolean(status.screen))
+        .catch(() => false),
+      checkAccessibilityPermission(),
+    ]);
+
+    setGranted({
+      "screen-recording": screenOk,
+      accessibility: accessibilityOk,
+    });
+  }, []);
+
+  useEffect(() => {
+    void refreshPermissions();
+
+    function onFocus() {
+      void refreshPermissions();
+    }
+    function onVisibility() {
+      if (document.visibilityState === "visible") {
+        void refreshPermissions();
+      }
+    }
+
+    window.addEventListener("focus", onFocus);
+    document.addEventListener("visibilitychange", onVisibility);
+    const poll = window.setInterval(() => {
+      void refreshPermissions();
+    }, 2500);
+
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(poll);
+    };
+  }, [refreshPermissions]);
 
   useEffect(() => {
     let cancelled = false;
@@ -411,36 +459,53 @@ export function SettingsPage() {
             </p>
           </div>
           <ul className="divide-y divide-border">
-            {PERMISSIONS.map((permission) => (
-              <li
-                key={permission.id}
-                className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
-              >
-                <div className="min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    {permission.label}
-                  </p>
-                  <p className="mt-1 text-sm text-muted-foreground">
-                    {permission.description}
-                  </p>
-                </div>
-                <div className="flex shrink-0 items-center gap-2">
-                  <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
-                    {permission.status}
-                  </span>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-none"
-                    onClick={() => openPrivacySettings(permission.pane)}
-                  >
-                    Open Settings
-                    <ExternalLink className="size-3.5" />
-                  </Button>
-                </div>
-              </li>
-            ))}
+            {PERMISSIONS.map((permission) => {
+              const isGranted = granted[permission.id];
+              return (
+                <li
+                  key={permission.id}
+                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-start sm:justify-between"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-foreground">
+                      {permission.label}
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      {permission.description}
+                    </p>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <span
+                      className={cn(
+                        "label-caps inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px]",
+                        isGranted
+                          ? "border-foreground bg-foreground text-background"
+                          : "border-border bg-muted text-muted-foreground",
+                      )}
+                    >
+                      {isGranted ? (
+                        <Check className="size-3" strokeWidth={2.5} />
+                      ) : null}
+                      {isGranted ? "Granted" : "Required"}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-none"
+                      onClick={() => {
+                        void openPrivacySettings(permission.pane).then(() => {
+                          void refreshPermissions();
+                        });
+                      }}
+                    >
+                      Open Settings
+                      <ExternalLink className="size-3.5" />
+                    </Button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         </div>
       </section>

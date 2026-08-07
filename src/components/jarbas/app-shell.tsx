@@ -1,5 +1,4 @@
 import { useState, type CSSProperties } from "react";
-import { ChevronsUpDown } from "lucide-react";
 import {
   Sidebar,
   SidebarContent,
@@ -24,6 +23,7 @@ import { OpportunitiesPage } from "@/components/jarbas/opportunities-page";
 import { RecordingPage } from "@/components/jarbas/recording-page";
 import { ReportsPage } from "@/components/jarbas/reports-page";
 import { SettingsPage } from "@/components/jarbas/settings-page";
+import { SidebarUserMenu } from "@/components/jarbas/sidebar-user-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { APP_TABS, type AppTabId } from "@/lib/app-tabs";
 import { cn } from "@/lib/utils";
@@ -93,24 +93,7 @@ export function AppShell() {
           </SidebarContent>
 
           <SidebarFooter className="border-t border-sidebar-border p-2 group-data-[collapsible=icon]:items-center">
-            <button
-              type="button"
-              className="flex w-full items-center gap-2.5 rounded-none border border-border bg-background px-2.5 py-2 text-left transition-colors hover:bg-muted group-data-[collapsible=icon]:size-9 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0"
-              title="Account"
-            >
-              <span className="flex size-7 shrink-0 items-center justify-center bg-sky text-[11px] font-semibold text-navy">
-                HP
-              </span>
-              <span className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
-                <span className="block truncate text-sm font-semibold tracking-tight">
-                  Hans Preinfalk
-                </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  hans@deploy.co
-                </span>
-              </span>
-              <ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground group-data-[collapsible=icon]:hidden" />
-            </button>
+            <SidebarUserMenu />
           </SidebarFooter>
         </Sidebar>
 
