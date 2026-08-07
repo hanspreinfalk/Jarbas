@@ -1,20 +1,23 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { SignIn, SignUp } from "@clerk/clerk-react";
+import { jarbasClerkAppearance } from "@/lib/clerk-appearance";
 
-function useAuthHash() {
-  const [hash, setHash] = useState(() => window.location.hash);
+const authAppearance = {
+  ...jarbasClerkAppearance,
+  elements: {
+    ...jarbasClerkAppearance.elements,
+    header: "hidden!",
+    headerTitle: "hidden!",
+    headerSubtitle: "hidden!",
+    card: `${jarbasClerkAppearance.elements.card} pt-5!`,
+  },
+};
 
-  useEffect(() => {
-    const onHashChange = () => setHash(window.location.hash);
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
-  return hash.includes("sign-up");
-}
+type AuthMode = "sign-in" | "sign-up";
 
 export function AuthGate() {
-  const isSignUp = useAuthHash();
+  const [mode, setMode] = useState<AuthMode>("sign-in");
+  const isSignUp = mode === "sign-up";
 
   return (
     <div className="flex h-dvh max-h-dvh min-h-0 flex-col overflow-hidden bg-background">
@@ -42,21 +45,47 @@ export function AuthGate() {
             </p>
           </div>
 
-          <div className="animate-fade-soft mt-8 w-full [&_.cl-cardBox]:mx-auto [&_.cl-rootBox]:mx-auto [&_.cl-rootBox]:w-full">
+          <div className="animate-fade-soft mt-4 w-full [&_.cl-cardBox]:mx-auto [&_.cl-rootBox]:mx-auto [&_.cl-rootBox]:w-full">
             {isSignUp ? (
               <SignUp
-                routing="hash"
+                appearance={authAppearance}
+                routing="virtual"
                 fallbackRedirectUrl="/"
-                signInUrl="/#/sign-in"
               />
             ) : (
               <SignIn
-                routing="hash"
+                appearance={authAppearance}
+                routing="virtual"
                 fallbackRedirectUrl="/"
-                signUpUrl="/#/sign-up"
               />
             )}
           </div>
+
+          <p className="animate-fade-soft mt-6 text-center text-sm text-muted-foreground">
+            {isSignUp ? (
+              <>
+                Already have an account?{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                  onClick={() => setMode("sign-in")}
+                >
+                  Sign in
+                </button>
+              </>
+            ) : (
+              <>
+                Don&apos;t have an account?{" "}
+                <button
+                  type="button"
+                  className="font-medium text-primary underline-offset-4 hover:underline"
+                  onClick={() => setMode("sign-up")}
+                >
+                  Sign up
+                </button>
+              </>
+            )}
+          </p>
         </div>
       </div>
     </div>
