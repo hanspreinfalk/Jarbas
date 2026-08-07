@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Circle, Square } from "lucide-react";
+import { Check, Circle, Loader2, Square } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toInputDate } from "@/lib/date-range";
 import { cn } from "@/lib/utils";
 import {
   captureErrorMessage,
   formatLastSessionLabel,
   getLastCaptureSession,
+  getRedactionPrefs,
   JARBAS_CAPTURE_START,
+  redactJarbasCapture,
   screenpipe,
 } from "@/lib/screenpipe";
 
@@ -20,12 +23,19 @@ function formatElapsed(totalSeconds: number) {
   return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
 }
 
+type SessionRedactPhase = "idle" | "redacting" | "success" | "error";
+
 export function RecordingPage() {
   const [recording, setRecording] = useState(false);
   const [elapsed, setElapsed] = useState(0);
   const [lastSession, setLastSession] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [sessionRedactPhase, setSessionRedactPhase] =
+    useState<SessionRedactPhase>("idle");
+  const [sessionRedactError, setSessionRedactError] = useState<string | null>(
+    null,
+  );
 
   const refreshLastSession = useCallback(async () => {
     try {
@@ -69,6 +79,8 @@ export function RecordingPage() {
   async function startRecording() {
     setBusy(true);
     setError(null);
+    setSessionRedactPhase("idle");
+    setSessionRedactError(null);
     try {
       const permissions = await screenpipe.permissions({ timeoutMs: 7500 });
       if (!permissions.screen) {
@@ -91,10 +103,58 @@ export function RecordingPage() {
   async function endRecording() {
     setBusy(true);
     setError(null);
+    setSessionRedactPhase("idle");
+    setSessionRedactError(null);
     try {
       await screenpipe.stop();
       setRecording(false);
-      await refreshLastSession();
+
+      const session = await getLastCaptureSession();
+      if (session) {
+        setLastSession(formatLastSessionLabel(session));
+      } else {
+        await refreshLastSession();
+      }
+
+      let autoRedact = true;
+      try {
+        const prefs = await getRedactionPrefs();
+        autoRedact = prefs.autoRedactOnStop;
+      } catch {
+        autoRedact = true;
+      }
+
+      if (!autoRedact) {
+        return;
+      }
+
+      const started = session?.startedAt ? new Date(session.startedAt) : null;
+      const ended = session?.endedAt ? new Date(session.endedAt) : null;
+      if (
+        !started ||
+        !ended ||
+        Number.isNaN(started.getTime()) ||
+        Number.isNaN(ended.getTime())
+      ) {
+        setSessionRedactPhase("error");
+        setSessionRedactError(
+          "Could not determine the session range for redaction.",
+        );
+        return;
+      }
+
+      setSessionRedactPhase("redacting");
+      setBusy(false);
+      try {
+        await redactJarbasCapture({
+          startDate: toInputDate(started),
+          endDate: toInputDate(ended),
+        });
+        setSessionRedactPhase("success");
+      } catch (caught) {
+        setSessionRedactPhase("error");
+        setSessionRedactError(captureErrorMessage(caught));
+      }
     } catch (caught) {
       setError(captureErrorMessage(caught));
     } finally {
@@ -153,7 +213,7 @@ export function RecordingPage() {
                 type="button"
                 size="lg"
                 onClick={() => void startRecording()}
-                disabled={busy}
+                disabled={busy || sessionRedactPhase === "redacting"}
                 className="rounded-none"
               >
                 <Circle className="size-3.5 fill-current" />
@@ -191,6 +251,31 @@ export function RecordingPage() {
             </p>
           </div>
         </div>
+
+        {sessionRedactPhase === "redacting" ? (
+          <div className="flex items-center gap-2 border-t border-border px-4 py-3 text-sm text-foreground">
+            <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
+            <span>Redacting sensitive text from this session…</span>
+          </div>
+        ) : null}
+
+        {sessionRedactPhase === "success" ? (
+          <div className="flex items-center gap-2 border-t border-border bg-muted/40 px-4 py-3 text-sm text-foreground">
+            <span className="inline-flex items-center gap-1.5 border border-border bg-card px-2 py-0.5 text-xs font-medium">
+              <Check className="size-3.5 text-primary" />
+              Session redacted
+            </span>
+            <span className="text-muted-foreground">
+              Sensitive text was scrubbed from this capture.
+            </span>
+          </div>
+        ) : null}
+
+        {sessionRedactPhase === "error" && sessionRedactError ? (
+          <div className="border-t border-border px-4 py-3 text-sm text-destructive">
+            {sessionRedactError}
+          </div>
+        ) : null}
       </section>
     </div>
   );

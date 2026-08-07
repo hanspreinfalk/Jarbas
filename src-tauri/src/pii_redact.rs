@@ -171,15 +171,37 @@ pub struct RedactResult {
     counts: BTreeMap<String, u64>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct RedactionHistory {
     /// Newest run first.
     #[serde(default)]
     runs: Vec<RedactResult>,
+    /// When true, End Recording auto-redacts the session just captured.
+    #[serde(default = "default_true")]
+    auto_redact_on_stop: bool,
+}
+
+impl Default for RedactionHistory {
+    fn default() -> Self {
+        Self {
+            runs: Vec::new(),
+            auto_redact_on_stop: true,
+        }
+    }
+}
+
+fn default_true() -> bool {
+    true
 }
 
 const MAX_REDACTION_RUNS: usize = 100;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RedactionPrefs {
+    auto_redact_on_stop: bool,
+}
 
 /// Scrub emails, keys, passwords, cards, and similar patterns from stored capture text.
 ///
@@ -442,6 +464,26 @@ pub fn get_redaction_history() -> Result<Vec<RedactResult>, String> {
     Ok(load_redaction_history()?.runs)
 }
 
+/// Preferences for automatic redaction after capture.
+#[tauri::command]
+pub fn get_redaction_prefs() -> Result<RedactionPrefs, String> {
+    let history = load_redaction_history()?;
+    Ok(RedactionPrefs {
+        auto_redact_on_stop: history.auto_redact_on_stop,
+    })
+}
+
+/// Persist whether End Recording should auto-redact the just-finished session.
+#[tauri::command]
+pub fn set_auto_redact_on_stop(enabled: bool) -> Result<RedactionPrefs, String> {
+    let mut history = load_redaction_history()?;
+    history.auto_redact_on_stop = enabled;
+    save_redaction_history(&history)?;
+    Ok(RedactionPrefs {
+        auto_redact_on_stop: history.auto_redact_on_stop,
+    })
+}
+
 fn append_redaction_run(result: &RedactResult) -> Result<(), String> {
     let mut history = load_redaction_history()?;
     let mut run = result.clone();
@@ -486,7 +528,10 @@ fn load_redaction_history() -> Result<RedactionHistory, String> {
         if run.id.trim().is_empty() {
             run.id = new_run_id(&run.completed_at);
         }
-        return Ok(RedactionHistory { runs: vec![run] });
+        return Ok(RedactionHistory {
+            runs: vec![run],
+            auto_redact_on_stop: true,
+        });
     }
 
     Err(format!("Could not parse {}", path.display()))

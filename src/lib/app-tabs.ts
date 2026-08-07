@@ -20,12 +20,27 @@ export type AppTabId =
   | "observability"
   | "connectors"
   | "settings"
+  | "redactions"
   | "ask";
 
 export type AppTab = {
   id: AppTabId;
   label: string;
   icon: ComponentType<{ className?: string }>;
+};
+
+/** Labels for pages that are not always in the sidebar (e.g. settings subpages). */
+export const APP_PAGE_LABELS: Record<AppTabId, string> = {
+  ask: "Ask",
+  recording: "Recording",
+  connectors: "Connectors",
+  learnings: "Learnings",
+  opportunities: "Opportunities",
+  reports: "Reports",
+  agents: "Agents",
+  observability: "Observability",
+  settings: "Settings",
+  redactions: "Redactions",
 };
 
 export const APP_TABS: AppTab[] = [

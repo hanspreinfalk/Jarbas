@@ -12,3 +12,13 @@ commands.allow = ["get_last_redaction"]
 identifier = "allow-get-redaction-history"
 description = "Allows reading the full sensitive-text redaction history."
 commands.allow = ["get_redaction_history"]
+
+[[permission]]
+identifier = "allow-get-redaction-prefs"
+description = "Allows reading redaction preferences such as auto-redact on stop."
+commands.allow = ["get_redaction_prefs"]
+
+[[permission]]
+identifier = "allow-set-auto-redact-on-stop"
+description = "Allows toggling automatic redaction after End Recording."
+commands.allow = ["set_auto_redact_on_stop"]

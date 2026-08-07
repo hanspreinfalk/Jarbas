@@ -23,18 +23,19 @@ import { LearningsPage } from "@/components/jarbas/learnings-page";
 import { ObservabilityPage } from "@/components/jarbas/observability-page";
 import { OpportunitiesPage } from "@/components/jarbas/opportunities-page";
 import { RecordingPage } from "@/components/jarbas/recording-page";
+import { RedactionsPage } from "@/components/jarbas/redactions-page";
 import { ReportsPage } from "@/components/jarbas/reports-page";
 import { SettingsPage } from "@/components/jarbas/settings-page";
 import { SidebarUserMenu } from "@/components/jarbas/sidebar-user-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { APP_TABS, type AppTabId } from "@/lib/app-tabs";
+import { APP_PAGE_LABELS, APP_TABS, type AppTabId } from "@/lib/app-tabs";
 import { cn } from "@/lib/utils";
 
 export type { AppTabId } from "@/lib/app-tabs";
 
 export function AppShell() {
   const [activeId, setActiveId] = useState<AppTabId>("ask");
-  const activeTab = APP_TABS.find((tab) => tab.id === activeId) ?? APP_TABS[0];
+  const pageLabel = APP_PAGE_LABELS[activeId];
 
   return (
     <TooltipProvider>
@@ -66,7 +67,9 @@ export function AppShell() {
                 <SidebarGroupContent>
                   <SidebarMenu className="gap-0.5">
                     {APP_TABS.map((tab) => {
-                      const active = tab.id === activeId;
+                      const active =
+                        tab.id === activeId ||
+                        (activeId === "redactions" && tab.id === "settings");
                       const Icon = tab.icon;
                       return (
                         <SidebarMenuItem key={tab.id}>
@@ -105,7 +108,7 @@ export function AppShell() {
               <SidebarTrigger className="rounded-none" />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium tracking-tight">
-                  {activeTab.label}
+                  {pageLabel}
                 </p>
               </div>
               <AppHeaderActions
@@ -138,8 +141,10 @@ export function AppShell() {
                 <ConnectorsPage />
               ) : activeId === "ask" ? (
                 <AskPage />
+              ) : activeId === "redactions" ? (
+                <RedactionsPage onNavigate={setActiveId} />
               ) : (
-                <SettingsPage />
+                <SettingsPage onNavigate={setActiveId} />
               )}
             </div>
           </SidebarInset>

@@ -41,6 +41,8 @@
     "allow-reset-jarbas-data",
     "allow-redact-jarbas-capture",
     "allow-get-last-redaction",
-    "allow-get-redaction-history"
+    "allow-get-redaction-history",
+    "allow-get-redaction-prefs",
+    "allow-set-auto-redact-on-stop"
   ]
 }

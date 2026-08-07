@@ -165,6 +165,22 @@ export async function getRedactionHistory(): Promise<RedactCaptureResult[]> {
   return invoke<RedactCaptureResult[]>("get_redaction_history");
 }
 
+export type RedactionPrefs = {
+  autoRedactOnStop: boolean;
+};
+
+/** Auto-redact preference (defaults to on when unset). */
+export async function getRedactionPrefs(): Promise<RedactionPrefs> {
+  return invoke<RedactionPrefs>("get_redaction_prefs");
+}
+
+/** Persist whether End Recording should auto-redact the just-finished session. */
+export async function setAutoRedactOnStop(
+  enabled: boolean,
+): Promise<RedactionPrefs> {
+  return invoke<RedactionPrefs>("set_auto_redact_on_stop", { enabled });
+}
+
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0B";
   const units = ["B", "KB", "MB", "GB", "TB"] as const;

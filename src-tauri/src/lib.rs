@@ -309,6 +309,8 @@ pub fn run() {
             pii_redact::redact_jarbas_capture,
             pii_redact::get_last_redaction,
             pii_redact::get_redaction_history,
+            pii_redact::get_redaction_prefs,
+            pii_redact::set_auto_redact_on_stop,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

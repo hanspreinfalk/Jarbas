@@ -6,6 +6,7 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  History,
   Loader2,
   RefreshCw,
   RotateCcw,
@@ -15,6 +16,7 @@ import {
 import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { ProviderLogo } from "@/components/jarbas/provider-logo";
 import { ThemeToggle } from "@/components/jarbas/theme-toggle";
 import {
@@ -46,16 +48,17 @@ import {
   formatBytes,
   formatFrameCount,
   getCaptureStorageStats,
-  getLastRedaction,
-  getRedactionHistory,
+  getRedactionPrefs,
   redactJarbasCapture,
-  redactionCategoryLabel,
   resetJarbasData,
   screenpipe,
+  setAutoRedactOnStop,
   type CaptureStorageStats,
   type RedactCaptureResult,
   type ResetJarbasResult,
 } from "@/lib/screenpipe";
+import type { AppTabId } from "@/lib/app-tabs";
+import { cn } from "@/lib/utils";
 import {
   DATE_RANGE_PRESETS,
   formatRangeLabel,
@@ -70,7 +73,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { cn } from "@/lib/utils";
 
 type PermissionId = "screen-recording" | "accessibility";
 
@@ -94,39 +96,6 @@ const EMPTY_KEYS: KeyStatus[] = [
   { provider: "openai", label: "OpenAI", configured: false, value: "" },
   { provider: "google", label: "Gemini", configured: false, value: "" },
 ];
-
-function formatRedactionTimestamp(iso: string): string {
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  });
-}
-
-function formatDurationMs(ms: number | undefined): string {
-  if (!ms || ms <= 0) return "<1s";
-  if (ms < 1000) return `${ms}ms`;
-  const seconds = ms / 1000;
-  if (seconds < 60) return `${seconds.toFixed(seconds >= 10 ? 0 : 1)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const rem = Math.round(seconds % 60);
-  return `${minutes}m ${rem}s`;
-}
-
-function redactionCountRows(
-  counts: Record<string, number> | undefined,
-): Array<{ tag: string; label: string; count: number }> {
-  if (!counts) return [];
-  return Object.entries(counts)
-    .filter(([, count]) => count > 0)
-    .map(([tag, count]) => ({
-      tag,
-      label: redactionCategoryLabel(tag),
-      count,
-    }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label));
-}
 
 function agentStatusCopy(status: PiAgentStatus | undefined): {
   label: string;
@@ -281,7 +250,11 @@ function ApiKeyRow({
   );
 }
 
-export function SettingsPage() {
+export function SettingsPage({
+  onNavigate,
+}: {
+  onNavigate?: (id: AppTabId) => void;
+}) {
   const resetOnboarding = useMutation(api.user.resetOnboarding);
   const [piInfo, setPiInfo] = useState<PiAgentInfo | null>(null);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
@@ -291,7 +264,6 @@ export function SettingsPage() {
   const [rangeOpen, setRangeOpen] = useState(false);
   const [fullOpen, setFullOpen] = useState(false);
   const [redactOpen, setRedactOpen] = useState(false);
-  const [redactDetailsOpen, setRedactDetailsOpen] = useState(false);
   const [redactPresetId, setRedactPresetId] = useState<string | "custom">(
     "today",
   );
@@ -308,12 +280,9 @@ export function SettingsPage() {
   const [resetError, setResetError] = useState<string | null>(null);
   const [resetNotice, setResetNotice] = useState<string | null>(null);
   const [redactError, setRedactError] = useState<string | null>(null);
-  const [redactionHistory, setRedactionHistory] = useState<
-    RedactCaptureResult[]
-  >([]);
-  const [selectedRedactionId, setSelectedRedactionId] = useState<string | null>(
-    null,
-  );
+  const [redactNotice, setRedactNotice] = useState<string | null>(null);
+  const [autoRedactOnStop, setAutoRedactOnStopState] = useState(true);
+  const [autoRedactBusy, setAutoRedactBusy] = useState(false);
   const [presetId, setPresetId] = useState<string | "custom">("last-14");
   const [startDate, setStartDate] = useState(() => {
     const start = new Date();
@@ -328,11 +297,6 @@ export function SettingsPage() {
   const [accessibilityInfo, setAccessibilityInfo] =
     useState<AccessibilityPermissionStatus | null>(null);
 
-  const lastRedaction = redactionHistory[0] ?? null;
-  const selectedRedaction =
-    redactionHistory.find((run) => (run.id || run.completedAt) === selectedRedactionId) ??
-    lastRedaction;
-
   const refreshStorage = useCallback(async () => {
     try {
       setStorage(await getCaptureStorageStats());
@@ -341,27 +305,28 @@ export function SettingsPage() {
     }
   }, []);
 
-  const refreshRedactionHistory = useCallback(async () => {
+  const refreshRedactionPrefs = useCallback(async () => {
     try {
-      const history = await getRedactionHistory();
-      setRedactionHistory(history);
-      setSelectedRedactionId((current) => {
-        if (current && history.some((run) => (run.id || run.completedAt) === current)) {
-          return current;
-        }
-        return history[0] ? history[0].id || history[0].completedAt : null;
-      });
+      const prefs = await getRedactionPrefs();
+      setAutoRedactOnStopState(prefs.autoRedactOnStop);
     } catch {
-      try {
-        const last = await getLastRedaction();
-        setRedactionHistory(last ? [last] : []);
-        setSelectedRedactionId(last ? last.id || last.completedAt : null);
-      } catch {
-        setRedactionHistory([]);
-        setSelectedRedactionId(null);
-      }
+      setAutoRedactOnStopState(true);
     }
   }, []);
+
+  async function onAutoRedactToggle(enabled: boolean) {
+    setAutoRedactBusy(true);
+    setAutoRedactOnStopState(enabled);
+    try {
+      const prefs = await setAutoRedactOnStop(enabled);
+      setAutoRedactOnStopState(prefs.autoRedactOnStop);
+    } catch {
+      setAutoRedactOnStopState(!enabled);
+      setRedactError("Could not save auto-redact preference.");
+    } finally {
+      setAutoRedactBusy(false);
+    }
+  }
 
   async function stopCaptureQuietly() {
     try {
@@ -454,11 +419,9 @@ export function SettingsPage() {
         startDate: redactStartDate,
         endDate: redactEndDate,
       });
-      setRedactionHistory((current) => [result, ...current]);
-      setSelectedRedactionId(result.id || result.completedAt);
       setRedactOpen(false);
+      setRedactNotice(result.message);
       await refreshStorage();
-      await refreshRedactionHistory();
     } catch (error) {
       setRedactError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -516,8 +479,8 @@ export function SettingsPage() {
   }, [refreshStorage]);
 
   useEffect(() => {
-    void refreshRedactionHistory();
-  }, [refreshRedactionHistory]);
+    void refreshRedactionPrefs();
+  }, [refreshRedactionPrefs]);
 
   useEffect(() => {
     let cancelled = false;
@@ -830,72 +793,62 @@ export function SettingsPage() {
       <section className="mt-8">
         <p className="label-caps text-primary">Redaction</p>
         <div className="mt-2 border border-border bg-card">
-          <div className="border-b border-border px-4 py-3">
-            <h2 className="text-base font-semibold tracking-tight text-foreground">
-              Sensitive text
-            </h2>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Scrub emails, phone numbers, cards, API keys, passwords, and
-              similar secrets from stored capture text.
-            </p>
-          </div>
-          <div className="px-4 py-4">
-            <p className="text-sm text-muted-foreground">
-              Replaces matches with tags like [EMAIL]. Frames and videos stay.
-              This cannot be undone.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-none"
-                disabled={redacting}
-                onClick={() => {
-                  setRedactError(null);
-                  setRedactOpen(true);
-                }}
-              >
-                <Shield className="size-3.5" />
-                Redact sensitive text
-              </Button>
-            </div>
-            {lastRedaction ? (
-              <div className="mt-3 border border-border bg-muted/40 px-3 py-2 text-sm text-foreground">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p>{lastRedaction.message}</p>
-                    <p className="mt-1 text-muted-foreground">
-                      Last pass{" "}
-                      {formatRedactionTimestamp(lastRedaction.completedAt)}
-                      {redactionHistory.length > 1
-                        ? ` · ${redactionHistory.length} runs saved`
-                        : null}
-                    </p>
-                  </div>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="shrink-0 rounded-none text-muted-foreground"
-                    onClick={() => {
-                      setSelectedRedactionId(
-                        lastRedaction.id || lastRedaction.completedAt,
-                      );
-                      setRedactDetailsOpen(true);
-                    }}
-                  >
-                    History
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-            {redactError && !redactOpen ? (
-              <p className="mt-3 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                {redactError}
+          <div className="flex items-start justify-between gap-4 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="text-base font-semibold tracking-tight text-foreground">
+                Auto-redact
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Scrub secrets when a recording ends.
               </p>
-            ) : null}
+            </div>
+            <Switch
+              checked={autoRedactOnStop}
+              disabled={autoRedactBusy}
+              onCheckedChange={(checked) => {
+                void onAutoRedactToggle(checked);
+              }}
+              aria-label="Auto-redact after End Recording"
+              className="mt-1 shrink-0"
+            />
           </div>
+          <div className="flex flex-wrap gap-2 border-t border-border px-4 py-3">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-none"
+              disabled={redacting}
+              onClick={() => {
+                setRedactError(null);
+                setRedactNotice(null);
+                setRedactOpen(true);
+              }}
+            >
+              <Shield className="size-3.5" />
+              Redact
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-none"
+              onClick={() => onNavigate?.("redactions")}
+            >
+              <History className="size-3.5" />
+              History
+            </Button>
+          </div>
+          {redactNotice ? (
+            <p className="border-t border-border px-4 py-3 text-sm text-foreground">
+              {redactNotice}
+            </p>
+          ) : null}
+          {redactError && !redactOpen ? (
+            <p className="border-t border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {redactError}
+            </p>
+          ) : null}
         </div>
       </section>
 
@@ -1088,200 +1041,6 @@ export function SettingsPage() {
               onClick={() => void handleRangeDelete()}
             >
               {resetting ? "Deleting…" : "Delete range"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog
-        open={redactDetailsOpen}
-        onOpenChange={(open) => {
-          setRedactDetailsOpen(open);
-          if (open && lastRedaction) {
-            setSelectedRedactionId(
-              selectedRedactionId ??
-                lastRedaction.id ??
-                lastRedaction.completedAt,
-            );
-          }
-        }}
-      >
-        <DialogContent className="rounded-none sm:max-w-2xl">
-          <DialogHeader>
-            <DialogTitle>Redaction history</DialogTitle>
-            <DialogDescription>
-              Every redaction pass saved on {thisComputerPhrase()}, newest
-              first.
-            </DialogDescription>
-          </DialogHeader>
-
-          {redactionHistory.length > 0 ? (
-            <div className="grid gap-4 sm:grid-cols-[13rem_minmax(0,1fr)]">
-              <div className="max-h-80 overflow-y-auto border border-border">
-                <ul className="divide-y divide-border">
-                  {redactionHistory.map((run) => {
-                    const runId = run.id || run.completedAt;
-                    const active =
-                      (selectedRedaction?.id ||
-                        selectedRedaction?.completedAt) === runId;
-                    return (
-                      <li key={runId}>
-                        <button
-                          type="button"
-                          onClick={() => setSelectedRedactionId(runId)}
-                          className={cn(
-                            "w-full px-3 py-2.5 text-left text-sm transition-colors",
-                            active
-                              ? "bg-foreground text-background"
-                              : "bg-card text-foreground hover:bg-muted",
-                          )}
-                        >
-                          <p className="font-medium">
-                            {formatRedactionTimestamp(run.completedAt)}
-                          </p>
-                          <p
-                            className={cn(
-                              "mt-0.5 text-xs",
-                              active
-                                ? "text-background/70"
-                                : "text-muted-foreground",
-                            )}
-                          >
-                            {run.startDate && run.endDate
-                              ? formatRangeLabel(run.startDate, run.endDate)
-                              : "Range unknown"}
-                            {" · "}
-                            {new Intl.NumberFormat(undefined).format(
-                              run.totalMatches ?? 0,
-                            )}{" "}
-                            matches
-                          </p>
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </div>
-
-              {selectedRedaction ? (
-                <div className="min-w-0 space-y-4">
-                  <p className="text-sm text-foreground">
-                    {selectedRedaction.message}
-                  </p>
-                  <div className="grid grid-cols-2 gap-px border border-border bg-border">
-                    <div className="bg-card px-3 py-3">
-                      <p className="label-caps text-muted-foreground">Started</p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {selectedRedaction.startedAt
-                          ? formatRedactionTimestamp(selectedRedaction.startedAt)
-                          : "—"}
-                      </p>
-                    </div>
-                    <div className="bg-card px-3 py-3">
-                      <p className="label-caps text-muted-foreground">
-                        Finished
-                      </p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {formatRedactionTimestamp(selectedRedaction.completedAt)}
-                      </p>
-                    </div>
-                    <div className="bg-card px-3 py-3">
-                      <p className="label-caps text-muted-foreground">Range</p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {selectedRedaction.startDate &&
-                        selectedRedaction.endDate
-                          ? formatRangeLabel(
-                              selectedRedaction.startDate,
-                              selectedRedaction.endDate,
-                            )
-                          : "—"}
-                      </p>
-                    </div>
-                    <div className="bg-card px-3 py-3">
-                      <p className="label-caps text-muted-foreground">
-                        Duration
-                      </p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {formatDurationMs(selectedRedaction.durationMs)}
-                      </p>
-                    </div>
-                    <div className="bg-card px-3 py-3">
-                      <p className="label-caps text-muted-foreground">Matches</p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {new Intl.NumberFormat(undefined).format(
-                          selectedRedaction.totalMatches ?? 0,
-                        )}
-                      </p>
-                    </div>
-                    <div className="bg-card px-3 py-3">
-                      <p className="label-caps text-muted-foreground">
-                        Fields scanned
-                      </p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {new Intl.NumberFormat(undefined).format(
-                          selectedRedaction.scannedRows,
-                        )}
-                      </p>
-                    </div>
-                    <div className="bg-card px-3 py-3 col-span-2">
-                      <p className="label-caps text-muted-foreground">
-                        Fields updated
-                      </p>
-                      <p className="mt-1 text-sm text-foreground">
-                        {new Intl.NumberFormat(undefined).format(
-                          selectedRedaction.updatedRows,
-                        )}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div>
-                    <p className="label-caps text-muted-foreground">
-                      By category
-                    </p>
-                    {redactionCountRows(selectedRedaction.counts).length > 0 ? (
-                      <ul className="mt-2 max-h-48 divide-y divide-border overflow-y-auto border border-border">
-                        {redactionCountRows(selectedRedaction.counts).map(
-                          (row) => (
-                            <li
-                              key={row.tag}
-                              className="flex items-center justify-between gap-3 px-3 py-2 text-sm"
-                            >
-                              <span className="text-foreground">
-                                {row.label}
-                              </span>
-                              <span className="tabular-nums text-muted-foreground">
-                                {new Intl.NumberFormat(undefined).format(
-                                  row.count,
-                                )}
-                              </span>
-                            </li>
-                          ),
-                        )}
-                      </ul>
-                    ) : (
-                      <p className="mt-2 border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-                        No category matches were recorded for this pass.
-                      </p>
-                    )}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : (
-            <p className="border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
-              No redaction runs saved yet.
-            </p>
-          )}
-
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              className="rounded-none"
-              onClick={() => setRedactDetailsOpen(false)}
-            >
-              Close
             </Button>
           </DialogFooter>
         </DialogContent>
