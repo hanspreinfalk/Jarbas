@@ -61,6 +61,11 @@ function startingCopy(kind: AnalysisKind): { title: string; detail: string } {
         title: "Starting report",
         detail: "Kicking off your work report. This can take a moment.",
       };
+    case "team-reports":
+      return {
+        title: "Starting team report",
+        detail: "Kicking off multi-team analysis. This can take a moment.",
+      };
   }
 }
 
