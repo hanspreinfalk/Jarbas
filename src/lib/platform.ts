@@ -37,7 +37,7 @@ export function capturePermissionsBlurb(): string {
     case "macos":
       return "macOS permissions for capture.";
     case "windows":
-      return "Windows permissions for capture.";
+      return "Windows privacy settings for capture.";
     default:
       return "System permissions for capture.";
   }
@@ -49,8 +49,55 @@ export function accessibilitySettingsHint(): string {
     case "macos":
       return "in System Settings → Privacy & Security → Accessibility";
     case "windows":
-      return "in Windows privacy settings";
+      return "in Settings → Privacy & security (UI Automation needs no extra toggle on desktop apps)";
     default:
       return "in your system privacy settings";
   }
+}
+
+export function screenSettingsHint(): string {
+  switch (detectHostOs()) {
+    case "macos":
+      return "in System Settings → Privacy & Security → Screen Recording";
+    case "windows":
+      return "in Settings → Privacy & security → Screenshots and screen recording";
+    default:
+      return "in your system privacy settings";
+  }
+}
+
+export type CapturePermissionDef = {
+  id: "screen-recording" | "accessibility";
+  label: string;
+  description: string;
+  pane: "screen-recording" | "accessibility";
+  /** When false, Windows/Linux treat this as always granted (no OS toggle). */
+  requiredOnHost: boolean;
+};
+
+/** Permission rows for onboarding + Settings, adapted per OS. */
+export function capturePermissionDefs(): CapturePermissionDef[] {
+  const os = detectHostOs();
+  const isMac = os === "macos";
+
+  return [
+    {
+      id: "screen-recording",
+      label: isMac ? "Screen Recording" : "Screen capture",
+      description: isMac
+        ? "Capture what is on screen."
+        : "Capture what is on screen (Windows privacy → Screenshots and screen recording).",
+      pane: "screen-recording",
+      requiredOnHost: true,
+    },
+    {
+      id: "accessibility",
+      label: isMac ? "Accessibility" : "UI context",
+      description: isMac
+        ? "Read UI and app context."
+        : "Read UI and app context. Desktop apps do not need a separate Accessibility toggle.",
+      pane: "accessibility",
+      requiredOnHost: isMac,
+    },
+  ];
 }

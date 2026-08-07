@@ -6,6 +6,7 @@ mod pi_agent;
 mod pi_analysis;
 mod pi_chat;
 mod pii_redact;
+mod privacy_settings;
 mod screenpipe;
 
 use serde::Serialize;
@@ -15,127 +16,6 @@ use serde_json::Value;
 #[tauri::command]
 fn greet(name: &str) -> String {
     format!("Hello, {}! You've been greeted from Rust!", name)
-}
-
-#[tauri::command]
-fn open_privacy_settings(pane: String) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let url = match pane.as_str() {
-            "screen-recording" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"
-            }
-            "accessibility" => {
-                "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"
-            }
-            _ => return Err(format!("Unknown privacy pane: {pane}")),
-        };
-
-        std::process::Command::new("open")
-            .arg(url)
-            .spawn()
-            .map_err(|error| error.to_string())?;
-        return Ok(());
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = pane;
-        Err("Privacy settings redirect is only available on macOS".into())
-    }
-}
-
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct AccessibilityPermissionStatus {
-    granted: bool,
-    executable_path: Option<String>,
-    process_name: Option<String>,
-}
-
-#[tauri::command]
-fn check_accessibility_permission(prompt: Option<bool>) -> AccessibilityPermissionStatus {
-    let executable_path = std::env::current_exe()
-        .ok()
-        .map(|path| path.display().to_string());
-    let process_name = executable_path.as_ref().map(|path| {
-        std::path::Path::new(path)
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("jarbas")
-            .to_string()
-    });
-
-    #[cfg(target_os = "macos")]
-    {
-        // macOS `Boolean` is a C unsigned char, not a Rust `bool`.
-        #[link(name = "ApplicationServices", kind = "framework")]
-        extern "C" {
-            static kAXTrustedCheckOptionPrompt: *const std::ffi::c_void;
-            fn AXIsProcessTrusted() -> u8;
-            fn AXIsProcessTrustedWithOptions(options: *const std::ffi::c_void) -> u8;
-        }
-
-        #[link(name = "CoreFoundation", kind = "framework")]
-        extern "C" {
-            fn CFDictionaryCreate(
-                allocator: *const std::ffi::c_void,
-                keys: *const *const std::ffi::c_void,
-                values: *const *const std::ffi::c_void,
-                num_values: isize,
-                key_call_backs: *const std::ffi::c_void,
-                value_call_backs: *const std::ffi::c_void,
-            ) -> *const std::ffi::c_void;
-            fn CFRelease(cf: *const std::ffi::c_void);
-            static kCFBooleanTrue: *const std::ffi::c_void;
-            static kCFTypeDictionaryKeyCallBacks: std::ffi::c_void;
-            static kCFTypeDictionaryValueCallBacks: std::ffi::c_void;
-        }
-
-        let should_prompt = prompt.unwrap_or(false);
-        let granted = unsafe {
-            if should_prompt {
-                let key = kAXTrustedCheckOptionPrompt;
-                let value = kCFBooleanTrue;
-                let options = CFDictionaryCreate(
-                    std::ptr::null(),
-                    &key,
-                    &value,
-                    1,
-                    &kCFTypeDictionaryKeyCallBacks,
-                    &kCFTypeDictionaryValueCallBacks,
-                );
-                let trusted = if options.is_null() {
-                    AXIsProcessTrusted()
-                } else {
-                    let result = AXIsProcessTrustedWithOptions(options);
-                    CFRelease(options);
-                    result
-                };
-                trusted != 0
-            } else {
-                let with_options = AXIsProcessTrustedWithOptions(std::ptr::null());
-                let basic = AXIsProcessTrusted();
-                with_options != 0 || basic != 0
-            }
-        };
-
-        return AccessibilityPermissionStatus {
-            granted,
-            executable_path,
-            process_name,
-        };
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        let _ = prompt;
-        AccessibilityPermissionStatus {
-            granted: false,
-            executable_path,
-            process_name,
-        }
-    }
 }
 
 #[derive(Serialize)]
@@ -321,8 +201,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             greet,
-            open_privacy_settings,
-            check_accessibility_permission,
+            privacy_settings::open_privacy_settings,
+            privacy_settings::check_accessibility_permission,
+            privacy_settings::check_screen_permission,
             list_composio_toolkits,
             composio::list_composio_connected_accounts,
             composio::create_composio_connect_link,

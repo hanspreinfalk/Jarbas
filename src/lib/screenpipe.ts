@@ -239,7 +239,15 @@ function formatDurationMs(ms: number): string {
 }
 
 export function captureErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message;
-  if (typeof error === "string" && error.trim()) return error;
+  const raw =
+    error instanceof Error && error.message
+      ? error.message
+      : typeof error === "string" && error.trim()
+        ? error
+        : "";
+  if (/not allowed by ACL/i.test(raw)) {
+    return "Capture is blocked by app security settings. Quit and reopen Jarbas (rebuild the app if this persists).";
+  }
+  if (raw) return raw;
   return "Recording failed";
 }

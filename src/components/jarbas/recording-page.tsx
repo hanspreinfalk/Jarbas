@@ -86,7 +86,7 @@ export function RecordingPage() {
       const permissions = await screenpipe.permissions({ timeoutMs: 7500 });
       if (!permissions.screen) {
         throw new Error(
-          "Screen Recording permission is required. Enable it in Settings → Permissions.",
+          "Screen capture permission is required. Enable it in Settings → Permissions, then Open Settings for screen capture.",
         );
       }
 

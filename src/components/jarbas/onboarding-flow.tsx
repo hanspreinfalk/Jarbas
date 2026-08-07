@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   Check,
@@ -10,18 +10,22 @@ import {
 } from "lucide-react";
 import { GateNav } from "@/components/jarbas/gate-nav";
 import { Button } from "@/components/ui/button";
-import { accessibilitySettingsHint } from "@/lib/platform";
+import {
+  accessibilitySettingsHint,
+  capturePermissionDefs,
+  type CapturePermissionDef,
+} from "@/lib/platform";
 import {
   getAccessibilityPermissionStatus,
+  getCapturePermissionSnapshot,
   openPrivacySettings,
   type AccessibilityPermissionStatus,
 } from "@/lib/privacy-settings";
-import { screenpipe } from "@/lib/screenpipe";
 import { cn } from "@/lib/utils";
 
 type Step = "welcome" | "permissions";
 
-type PermissionId = "screen-recording" | "accessibility";
+type PermissionId = CapturePermissionDef["id"];
 
 const PILLARS = [
   {
@@ -41,22 +45,8 @@ const PILLARS = [
   },
 ] as const;
 
-const PERMISSIONS = [
-  {
-    id: "screen-recording" as const,
-    label: "Screen Recording",
-    description: "Capture what is on screen.",
-    pane: "screen-recording",
-  },
-  {
-    id: "accessibility" as const,
-    label: "Accessibility",
-    description: "Read UI and app context.",
-    pane: "accessibility",
-  },
-];
-
 export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
+  const permissions = useMemo(() => capturePermissionDefs(), []);
   const [step, setStep] = useState<Step>("welcome");
   const [granted, setGranted] = useState<Record<PermissionId, boolean>>({
     "screen-recording": false,
@@ -64,20 +54,14 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
   });
   const [accessibilityInfo, setAccessibilityInfo] =
     useState<AccessibilityPermissionStatus | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
 
   const refreshPermissions = useCallback(async () => {
-    const [screenOk, accessibilityStatus] = await Promise.all([
-      screenpipe
-        .permissions({ timeoutMs: 7500 })
-        .then((status) => Boolean(status.screen))
-        .catch(() => false),
-      getAccessibilityPermissionStatus(),
-    ]);
-
-    setAccessibilityInfo(accessibilityStatus);
+    const snapshot = await getCapturePermissionSnapshot();
+    setAccessibilityInfo(snapshot.accessibilityInfo);
     setGranted({
-      "screen-recording": screenOk,
-      accessibility: accessibilityStatus.granted,
+      "screen-recording": snapshot.screen,
+      accessibility: snapshot.accessibility,
     });
   }, []);
 
@@ -112,12 +96,22 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
     onComplete();
   }
 
-  async function requestPermission(permission: (typeof PERMISSIONS)[number]) {
-    if (permission.id === "accessibility") {
+  async function requestPermission(permission: CapturePermissionDef) {
+    setSettingsError(null);
+    if (permission.id === "accessibility" && permission.requiredOnHost) {
       // Ask macOS for THIS process (dev binary ≠ packaged Jarbas.app).
-      await getAccessibilityPermissionStatus({ prompt: true });
+      void getAccessibilityPermissionStatus({ prompt: true });
     }
-    await openPrivacySettings(permission.pane);
+    try {
+      await openPrivacySettings(permission.pane);
+    } catch (error) {
+      console.error("Failed to open privacy settings", error);
+      setSettingsError(
+        error instanceof Error
+          ? error.message
+          : "Could not open system settings.",
+      );
+    }
     await refreshPermissions();
   }
 
@@ -182,14 +176,19 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
                 Allow Jarbas to see your work
               </h1>
               <p className="mt-4 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-                Needed for capture. Stays private and local.
+                Needed for capture. Stays private and local. After you enable a
+                permission, quit and reopen Jarbas if the status stays Required.
               </p>
+              {settingsError ? (
+                <p className="mt-3 text-sm text-destructive">{settingsError}</p>
+              ) : null}
 
               <ul className="mt-8 divide-y divide-border border border-border bg-card">
-                {PERMISSIONS.map((permission) => {
+                {permissions.map((permission) => {
                   const isGranted = granted[permission.id];
                   const showProcessHint =
                     permission.id === "accessibility" &&
+                    permission.requiredOnHost &&
                     !isGranted &&
                     (accessibilityInfo?.processName ||
                       accessibilityInfo?.executablePath);
@@ -221,12 +220,16 @@ export function OnboardingFlow({ onComplete }: { onComplete: () => void }) {
                             <span
                               className={cn(
                                 "label-caps border px-1.5 py-0.5 text-[10px]",
-                                isGranted
+                                isGranted || !permission.requiredOnHost
                                   ? "border-foreground bg-foreground text-background"
                                   : "border-border bg-muted text-muted-foreground",
                               )}
                             >
-                              {isGranted ? "Granted" : "Required"}
+                              {permission.requiredOnHost
+                                ? isGranted
+                                  ? "Granted"
+                                  : "Required"
+                                : "Ready"}
                             </span>
                           </div>
                           <p className="mt-1 text-sm leading-relaxed text-muted-foreground">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useMutation } from "convex/react";
 import {
   Check,
@@ -29,11 +29,14 @@ import {
 } from "@/lib/llm-settings";
 import {
   accessibilitySettingsHint,
+  capturePermissionDefs,
   capturePermissionsBlurb,
   thisComputerPhrase,
+  type CapturePermissionDef,
 } from "@/lib/platform";
 import {
   getAccessibilityPermissionStatus,
+  getCapturePermissionSnapshot,
   openPrivacySettings,
   type AccessibilityPermissionStatus,
 } from "@/lib/privacy-settings";
@@ -74,22 +77,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type PermissionId = "screen-recording" | "accessibility";
-
-const PERMISSIONS = [
-  {
-    id: "screen-recording" as const,
-    label: "Screen Recording",
-    description: "Capture what is on screen.",
-    pane: "screen-recording",
-  },
-  {
-    id: "accessibility" as const,
-    label: "Accessibility",
-    description: "Read UI elements and app context.",
-    pane: "accessibility",
-  },
-];
+type PermissionId = CapturePermissionDef["id"];
 
 const EMPTY_KEYS: KeyStatus[] = [
   { provider: "anthropic", label: "Anthropic", configured: false, value: "" },
@@ -255,6 +243,7 @@ export function SettingsPage({
 }: {
   onNavigate?: (id: AppTabId) => void;
 }) {
+  const permissions = useMemo(() => capturePermissionDefs(), []);
   const resetOnboarding = useMutation(api.user.resetOnboarding);
   const [piInfo, setPiInfo] = useState<PiAgentInfo | null>(null);
   const [llmSettings, setLlmSettings] = useState<LlmSettings | null>(null);
@@ -296,6 +285,7 @@ export function SettingsPage({
   });
   const [accessibilityInfo, setAccessibilityInfo] =
     useState<AccessibilityPermissionStatus | null>(null);
+  const [permissionsError, setPermissionsError] = useState<string | null>(null);
 
   const refreshStorage = useCallback(async () => {
     try {
@@ -434,18 +424,11 @@ export function SettingsPage({
   );
 
   const refreshPermissions = useCallback(async () => {
-    const [screenOk, accessibilityStatus] = await Promise.all([
-      screenpipe
-        .permissions({ timeoutMs: 7500 })
-        .then((status) => Boolean(status.screen))
-        .catch(() => false),
-      getAccessibilityPermissionStatus(),
-    ]);
-
-    setAccessibilityInfo(accessibilityStatus);
+    const snapshot = await getCapturePermissionSnapshot();
+    setAccessibilityInfo(snapshot.accessibilityInfo);
     setGranted({
-      "screen-recording": screenOk,
-      accessibility: accessibilityStatus.granted,
+      "screen-recording": snapshot.screen,
+      accessibility: snapshot.accessibility,
     });
   }, []);
 
@@ -703,15 +686,40 @@ export function SettingsPage({
             <p className="mt-1 text-sm text-muted-foreground">
               {capturePermissionsBlurb()}
             </p>
+            {permissionsError ? (
+              <p className="mt-2 text-sm text-destructive">{permissionsError}</p>
+            ) : null}
           </div>
           <ul className="divide-y divide-border">
-            {PERMISSIONS.map((permission) => {
+            {permissions.map((permission) => {
               const isGranted = granted[permission.id];
               const showProcessHint =
                 permission.id === "accessibility" &&
+                permission.requiredOnHost &&
                 !isGranted &&
                 (accessibilityInfo?.processName ||
                   accessibilityInfo?.executablePath);
+              async function openPermissionSettings() {
+                setPermissionsError(null);
+                if (
+                  permission.id === "accessibility" &&
+                  permission.requiredOnHost
+                ) {
+                  // Prompt in parallel; do not wait before deep-linking.
+                  void getAccessibilityPermissionStatus({ prompt: true });
+                }
+                try {
+                  await openPrivacySettings(permission.pane);
+                } catch (error) {
+                  console.error("Failed to open privacy settings", error);
+                  setPermissionsError(
+                    error instanceof Error
+                      ? error.message
+                      : "Could not open system settings.",
+                  );
+                }
+                void refreshPermissions();
+              }
               return (
                 <li
                   key={permission.id}
@@ -748,15 +756,19 @@ export function SettingsPage({
                     <span
                       className={cn(
                         "label-caps inline-flex items-center gap-1 border px-1.5 py-0.5 text-[10px]",
-                        isGranted
+                        isGranted || !permission.requiredOnHost
                           ? "border-foreground bg-foreground text-background"
                           : "border-border bg-muted text-muted-foreground",
                       )}
                     >
-                      {isGranted ? (
+                      {isGranted && permission.requiredOnHost ? (
                         <Check className="size-3" strokeWidth={2.5} />
                       ) : null}
-                      {isGranted ? "Granted" : "Required"}
+                      {permission.requiredOnHost
+                        ? isGranted
+                          ? "Granted"
+                          : "Required"
+                        : "Ready"}
                     </span>
                     <Button
                       type="button"
@@ -764,19 +776,7 @@ export function SettingsPage({
                       size="sm"
                       className="rounded-none"
                       onClick={() => {
-                        if (permission.id === "accessibility") {
-                          void getAccessibilityPermissionStatus({
-                            prompt: true,
-                          }).then(() => {
-                            void openPrivacySettings(permission.pane).then(() => {
-                              void refreshPermissions();
-                            });
-                          });
-                          return;
-                        }
-                        void openPrivacySettings(permission.pane).then(() => {
-                          void refreshPermissions();
-                        });
+                        void openPermissionSettings();
                       }}
                     >
                       Open Settings

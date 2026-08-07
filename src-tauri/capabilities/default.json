@@ -1,8 +1,17 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window",
+  "description": "Capability for the main window (local + localhost UI origins).",
   "windows": ["main"],
+  "local": true,
+  "remote": {
+    "urls": [
+      "http://localhost:1420/*",
+      "http://localhost:1421/*",
+      "http://127.0.0.1:1420/*",
+      "http://127.0.0.1:1421/*"
+    ]
+  },
   "permissions": [
     "core:default",
     "opener:default",
