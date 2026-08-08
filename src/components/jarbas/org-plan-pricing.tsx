@@ -1,14 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { useAuth, useClerk, useOrganization } from "@clerk/clerk-react";
 import { usePlans } from "@clerk/clerk-react/experimental";
+import { useAction } from "convex/react";
 import { invoke } from "@tauri-apps/api/core";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { Check, ExternalLink, Loader2 } from "lucide-react";
+import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
 import {
   activeOrgPlanSlug,
   ENTERPRISE_BOOKING_URL,
   ORG_PLAN_SLUGS,
+  seatLimitForPlanSlug,
 } from "@/lib/billing";
 import { cn } from "@/lib/utils";
 
@@ -21,6 +24,13 @@ type Tier = {
   price: string;
   priceNote?: string;
   featured?: boolean;
+};
+
+type SyncSeatResult = {
+  organizationId: string;
+  planSlug: string;
+  maxAllowedMemberships: number;
+  updated: boolean;
 };
 
 const TIERS: Tier[] = [
@@ -61,10 +71,12 @@ export function OrgPlanPricing() {
   const { data: plans, isLoading: plansLoading } = usePlans({
     for: "organization",
   });
+  const syncOrgSeatLimit = useAction(api.billing.syncOrgSeatLimit);
   const [booking, setBooking] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
   const [syncingSeats, setSyncingSeats] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [seatRetryPlan, setSeatRetryPlan] = useState<string | null>(null);
   const syncedKey = useRef<string | null>(null);
 
   const businessPlan = plans?.find((p) => p.slug === ORG_PLAN_SLUGS.business);
@@ -72,25 +84,84 @@ export function OrgPlanPricing() {
   const onEnterprise = !!has?.({ plan: `org:${ORG_PLAN_SLUGS.enterprise}` });
   const onFree = !onBusiness && !onEnterprise;
   const planSlug = activeOrgPlanSlug({ onBusiness, onEnterprise });
+  const expectedSeats = seatLimitForPlanSlug(planSlug);
+  const liveSeats = organization?.maxAllowedMemberships ?? null;
+  const seatsNeedFix =
+    liveSeats != null &&
+    expectedSeats > 1 &&
+    liveSeats < expectedSeats;
+
+  async function syncSeatsViaTauri(
+    nextPlan: string,
+    force: boolean,
+  ): Promise<SyncSeatResult> {
+    return invoke<SyncSeatResult>("sync_org_seat_limit", {
+      organizationId: orgId,
+      planSlug: nextPlan,
+      force,
+    });
+  }
 
   async function syncSeats(nextPlan: string, options?: { force?: boolean }) {
     if (!orgId) return;
+    const force = options?.force ?? false;
     const key = `${orgId}:${nextPlan}`;
-    if (!options?.force && syncedKey.current === key) return;
+    if (!force && syncedKey.current === key) return;
 
     setSyncingSeats(true);
+    setActionError(null);
     try {
-      await invoke("sync_org_seat_limit", {
-        organizationId: orgId,
-        planSlug: nextPlan,
-        force: options?.force ?? false,
-      });
+      let result: SyncSeatResult | null = null;
+      try {
+        // Prefer Convex (server Clerk secret) so packaged builds work.
+        result = await syncOrgSeatLimit({
+          organizationId: orgId,
+          planSlug: nextPlan,
+          force,
+        });
+      } catch (convexErr) {
+        console.warn(
+          "Convex seat sync failed; falling back to Tauri",
+          convexErr,
+        );
+        result = await syncSeatsViaTauri(nextPlan, force);
+      }
+
       syncedKey.current = key;
       await organization?.reload();
       // Refresh auth claims so `has({ plan })` catches up after checkout.
       await clerk.session?.reload();
+
+      // Assert against the server-reported cap (React org state is still stale
+      // in this tick even after reload()).
+      const expected = seatLimitForPlanSlug(nextPlan);
+      const reported = result?.maxAllowedMemberships;
+      if (force && expected > 1 && (reported == null || reported < expected)) {
+        setSeatRetryPlan(nextPlan);
+        throw new Error(
+          `Upgraded, but seats are ${reported ?? "unknown"} (expected ${expected}).`,
+        );
+      }
+
+      if (reported != null && expected > 1 && reported >= expected) {
+        setSeatRetryPlan(null);
+        setActionError(null);
+      }
     } finally {
       setSyncingSeats(false);
+    }
+  }
+
+  async function retrySeatSync() {
+    const plan = seatRetryPlan ?? ORG_PLAN_SLUGS.business;
+    try {
+      await syncSeats(plan, { force: true });
+    } catch (err) {
+      setActionError(
+        err instanceof Error
+          ? err.message
+          : "Seat sync failed. Try Retry again.",
+      );
     }
   }
 
@@ -101,6 +172,46 @@ export function OrgPlanPricing() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when org/plan changes
   }, [authLoaded, orgId, orgLoaded, planSlug]);
+
+  // Only alert if seats stay wrong after sync/checkout settle — avoid a flash
+  // while has(Business) flips before maxAllowedMemberships reloads to 10.
+  useEffect(() => {
+    if (
+      !seatsNeedFix ||
+      syncingSeats ||
+      checkoutBusy
+    ) {
+      if (
+        liveSeats != null &&
+        expectedSeats > 1 &&
+        liveSeats >= expectedSeats
+      ) {
+        setSeatRetryPlan(null);
+        setActionError((prev) =>
+          prev && /seat limit is \d+ but .+ expects \d+/i.test(prev)
+            ? null
+            : prev,
+        );
+      }
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setSeatRetryPlan(planSlug);
+      setActionError(
+        `Seat limit is ${liveSeats} but ${planSlug} expects ${expectedSeats}.`,
+      );
+    }, 2500);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    seatsNeedFix,
+    syncingSeats,
+    checkoutBusy,
+    planSlug,
+    liveSeats,
+    expectedSeats,
+  ]);
 
   async function bookEnterprise() {
     setBooking(true);
@@ -116,6 +227,7 @@ export function OrgPlanPricing() {
 
   async function chooseBusiness() {
     setActionError(null);
+    setSeatRetryPlan(null);
     setCheckoutBusy(true);
 
     try {
@@ -143,10 +255,11 @@ export function OrgPlanPricing() {
               // and don't let a stale Free sync overwrite this.
               await syncSeats(ORG_PLAN_SLUGS.business, { force: true });
             } catch (err) {
+              setSeatRetryPlan(ORG_PLAN_SLUGS.business);
               setActionError(
                 err instanceof Error
                   ? err.message
-                  : "Upgraded, but seats did not update. Open Pricing again to retry.",
+                  : "Upgraded, but seats did not update.",
               );
             } finally {
               setCheckoutBusy(false);
@@ -307,10 +420,27 @@ export function OrgPlanPricing() {
         })}
       </div>
 
-      {actionError ? (
-        <p className="mt-4 text-sm text-destructive" role="alert">
-          {actionError}
-        </p>
+      {actionError || seatRetryPlan ? (
+        <div className="mt-4 flex flex-wrap items-center gap-3" role="alert">
+          {actionError ? (
+            <p className="text-sm text-destructive">{actionError}</p>
+          ) : null}
+          {seatRetryPlan ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-none"
+              disabled={syncingSeats}
+              onClick={() => void retrySeatSync()}
+            >
+              {syncingSeats ? (
+                <Loader2 className="size-3.5 animate-spin" />
+              ) : null}
+              Retry seat sync
+            </Button>
+          ) : null}
+        </div>
       ) : null}
     </div>
   );

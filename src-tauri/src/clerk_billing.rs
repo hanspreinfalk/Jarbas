@@ -2,6 +2,7 @@ use crate::load_env;
 use reqwest::Client;
 use serde::Serialize;
 use serde_json::Value;
+use std::time::Duration;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,10 +64,7 @@ fn best_plan_from_items(items: &[Value]) -> Option<(u8, String)> {
             .and_then(Value::as_str)
             .unwrap_or("")
             .to_ascii_lowercase();
-        let slug = slug
-            .replace(' ', "_")
-            .trim()
-            .to_string();
+        let slug = slug.replace(' ', "_").trim().to_string();
         if slug.is_empty() {
             continue;
         }
@@ -110,6 +108,10 @@ async fn active_billing_plan_slug(
         return Ok(None);
     }
     if !status.is_success() {
+        // Log body for diagnosis (no secrets). Caller may retry on force.
+        eprintln!(
+            "clerk billing subscription lookup failed status={status} body={body}"
+        );
         return Err(format!(
             "Could not load org billing subscription ({status}): {body}"
         ));
@@ -147,9 +149,62 @@ async fn active_billing_plan_slug(
     Ok(None)
 }
 
+/// After checkout, Clerk billing can briefly 404 / return empty items.
+/// When `force`, retry with backoff until a paid plan appears or attempts exhaust.
+async fn active_billing_plan_slug_maybe_retry(
+    client: &Client,
+    secret: &str,
+    organization_id: &str,
+    force: bool,
+) -> Result<Option<String>, String> {
+    if !force {
+        return active_billing_plan_slug(client, secret, organization_id).await;
+    }
+
+    // 0 + ~400/800/1600/2400 ms ≈ 5.2s total wait for billing to catch up.
+    const DELAYS_MS: [u64; 5] = [0, 400, 800, 1600, 2400];
+    let mut last: Result<Option<String>, String> = Ok(None);
+
+    for (attempt, delay_ms) in DELAYS_MS.iter().enumerate() {
+        if *delay_ms > 0 {
+            tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+        }
+        last = active_billing_plan_slug(client, secret, organization_id).await;
+        match &last {
+            Ok(Some(slug)) if plan_rank(slug) >= 2 => return last,
+            Ok(Some(_)) => {
+                // Confirmed free/ended mid-checkout is unlikely; keep retrying
+                // while force so a transient free row does not win early.
+                eprintln!(
+                    "clerk billing attempt {} returned free/unknown; retrying",
+                    attempt + 1
+                );
+            }
+            Ok(None) => {
+                eprintln!(
+                    "clerk billing attempt {} empty/404; retrying",
+                    attempt + 1
+                );
+            }
+            Err(err) => {
+                eprintln!(
+                    "clerk billing attempt {} error: {err}; retrying",
+                    attempt + 1
+                );
+            }
+        }
+    }
+
+    last
+}
+
 fn resolve_plan_slug(billing_slug: Option<String>, client_hint: &str, force: bool) -> String {
     let hint = client_hint.trim();
-    let _ = force;
+    // Checkout path: prefer paid client hint immediately — billing can lag or
+    // still report free while seats must already be 10.
+    if force && plan_rank(hint) >= 2 {
+        return hint.to_string();
+    }
     match billing_slug {
         Some(slug) if plan_rank(&slug) >= 2 => slug,
         Some(slug) => {
@@ -194,7 +249,7 @@ pub async fn sync_org_seat_limit(
     let client = Client::new();
 
     let billing_slug =
-        active_billing_plan_slug(&client, &secret, &organization_id).await?;
+        active_billing_plan_slug_maybe_retry(&client, &secret, &organization_id, force).await?;
     let billing_confirmed = billing_slug.is_some();
     let resolved_plan = resolve_plan_slug(billing_slug, &plan_hint, force);
     let target = seat_limit_for_plan(&resolved_plan);
@@ -264,10 +319,38 @@ pub async fn sync_org_seat_limit(
         ));
     }
 
+    // Re-read so callers can assert the live cap (not just the request target).
+    let verified = client
+        .get(&url)
+        .bearer_auth(&secret)
+        .send()
+        .await
+        .map_err(|error| format!("Could not verify organization seats: {error}"))?;
+    let verified_limit = if verified.status().is_success() {
+        verified
+            .json::<Value>()
+            .await
+            .ok()
+            .and_then(|json| {
+                json.get("max_allowed_memberships")
+                    .and_then(|v| v.as_u64())
+                    .map(|n| n as u32)
+            })
+            .unwrap_or(target)
+    } else {
+        target
+    };
+
+    if force && verified_limit < target {
+        return Err(format!(
+            "Seat sync did not stick: expected {target}, got {verified_limit}"
+        ));
+    }
+
     Ok(SyncOrgSeatLimitResponse {
         organization_id,
         plan_slug: resolved_plan,
-        max_allowed_memberships: target,
+        max_allowed_memberships: verified_limit,
         updated: true,
     })
 }

@@ -25,3 +25,12 @@ export function activeOrgPlanSlug(options: {
   if (options.onBusiness) return ORG_PLAN_SLUGS.business;
   return ORG_PLAN_SLUGS.free;
 }
+
+/** Expected membership cap for a plan slug (unknown → free). */
+export function seatLimitForPlanSlug(planSlug: string): number {
+  if (planSlug === ORG_PLAN_SLUGS.business) return ORG_PLAN_SEAT_LIMITS.business;
+  if (planSlug === ORG_PLAN_SLUGS.enterprise) {
+    return ORG_PLAN_SEAT_LIMITS.enterprise;
+  }
+  return ORG_PLAN_SEAT_LIMITS.free_org;
+}
