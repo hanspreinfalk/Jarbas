@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Download, Loader2, LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import {
   AnalysisItemToolbar,
   DeleteConfirmDialog,
@@ -16,7 +16,7 @@ import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
-import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
+import { DocumentMasthead } from "@/components/jarbas/document-masthead";
 import { PeriodBadge } from "@/components/jarbas/period-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -205,52 +205,33 @@ function OpportunityDetail({
           All opportunities
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          {!editing ? (
-            <AnalysisRunButton tab={tab} onTabChange={setTab} />
-          ) : null}
-          {tab === "details" ? (
-            <AnalysisItemToolbar
-              editing={editing}
-              saving={saving}
-              deleting={deleting}
-              onEdit={() => {
-                setDraft(toDraft(opportunity));
-                setEditing(true);
-                setActionError(null);
-              }}
-              onCancelEdit={() => {
-                setDraft(toDraft(opportunity));
-                setEditing(false);
-                setActionError(null);
-              }}
-              onSave={() => void handleSave()}
-              onDeleteRequest={() => setConfirmDelete(true)}
-            />
-          ) : null}
-          {tab === "details" && !editing ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-none"
-              disabled={exporting}
-              aria-label="Export"
-              onClick={() => void handleExport()}
-            >
-              {exporting ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Download className="size-3.5" />
-              )}
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
-          ) : null}
+          <AnalysisItemToolbar
+            editing={editing}
+            saving={saving}
+            deleting={deleting}
+            exporting={exporting}
+            tab={tab}
+            onTabChange={setTab}
+            onEdit={() => {
+              setDraft(toDraft(opportunity));
+              setEditing(true);
+              setActionError(null);
+            }}
+            onCancelEdit={() => {
+              setDraft(toDraft(opportunity));
+              setEditing(false);
+              setActionError(null);
+            }}
+            onSave={() => void handleSave()}
+            onDeleteRequest={() => setConfirmDelete(true)}
+            onExport={() => void handleExport()}
+          />
         </div>
       </div>
 
       <div ref={exportRef}>
-      <header className="mt-6 border-b border-border pb-6">
-        {editing ? (
+      {editing ? (
+        <header className="mt-6 border-b border-border pb-6">
           <div className="space-y-4">
             <div className="space-y-1.5">
               <FieldLabel>Title</FieldLabel>
@@ -302,9 +283,18 @@ function OpportunityDetail({
               </div>
             </div>
           </div>
-        ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
+        </header>
+      ) : (
+        <DocumentMasthead
+          kind="Opportunity"
+          className="mt-6"
+          size="md"
+          reference={formatRangeLabel(
+            opportunity.startDate ?? "",
+            opportunity.endDate ?? "",
+          )}
+          chips={
+            <>
               <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                 {opportunity.category}
               </span>
@@ -317,30 +307,31 @@ function OpportunityDetail({
               <span className="text-xs text-muted-foreground">
                 Effort {opportunity.effort}
               </span>
-            </div>
-            <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
-              {opportunity.title}
-            </h1>
-            <p className="mt-3 text-sm text-muted-foreground">
+            </>
+          }
+          title={opportunity.title}
+          byline={
+            <p>
               Owner {opportunity.owner} · Saves {opportunity.hoursSavedPerCycle}
             </p>
-            <PeriodBadge
-              className="mt-2 inline-flex"
-              startDate={opportunity.startDate}
-              endDate={opportunity.endDate}
-              firstSeen={opportunity.firstSeen}
-              lastSeen={opportunity.lastSeen}
-              hintTexts={[
-                opportunity.relatedLearning,
-                opportunity.signal,
-                opportunity.whyNow,
-              ]}
-              analysisStartedAt={opportunity.analysis?.startedAt}
-              analysisFinishedAt={opportunity.analysis?.finishedAt}
-            />
-          </>
-        )}
-      </header>
+          }
+        >
+          <PeriodBadge
+            className="mt-3 inline-flex"
+            startDate={opportunity.startDate}
+            endDate={opportunity.endDate}
+            firstSeen={opportunity.firstSeen}
+            lastSeen={opportunity.lastSeen}
+            hintTexts={[
+              opportunity.relatedLearning,
+              opportunity.signal,
+              opportunity.whyNow,
+            ]}
+            analysisStartedAt={opportunity.analysis?.startedAt}
+            analysisFinishedAt={opportunity.analysis?.finishedAt}
+          />
+        </DocumentMasthead>
+      )}
 
       {actionError ? (
         <p className="mt-4 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

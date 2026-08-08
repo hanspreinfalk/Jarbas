@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
-import { ArrowLeft, Download, LoaderCircle } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
 import {
   AnalysisItemToolbar,
   DeleteConfirmDialog,
@@ -9,10 +9,8 @@ import {
   TextArea,
 } from "@/components/jarbas/analysis-item-editor";
 import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
-import {
-  AnalysisRunButton,
-  type DetailViewTab,
-} from "@/components/jarbas/detail-ai-tabs";
+import { type DetailViewTab } from "@/components/jarbas/detail-ai-tabs";
+import { DocumentMasthead } from "@/components/jarbas/document-masthead";
 import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
 import { ReportMarkdown } from "@/components/jarbas/report-markdown";
 import { Button } from "@/components/ui/button";
@@ -333,49 +331,25 @@ export function TeamReportDetail({
           {backLabel}
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          {tab === "ai" && !editing ? (
-            <AnalysisRunButton tab={tab} onTabChange={setTab} />
-          ) : null}
-          {tab === "details" ? (
-            <AnalysisItemToolbar
-              editing={editing}
-              saving={saving}
-              deleting={deleting}
-              leading={
-                !editing ? (
-                  <AnalysisRunButton tab={tab} onTabChange={setTab} />
-                ) : null
-              }
-              onEdit={() => {
-                setEditing(true);
-                setActionError(null);
-              }}
-              onCancelEdit={() => {
-                setEditing(false);
-                setActionError(null);
-              }}
-              onSave={() => void handleSave()}
-              onDeleteRequest={() => setConfirmDelete(true)}
-            />
-          ) : null}
-          {tab === "details" && !editing ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-none"
-              disabled={exporting}
-              aria-label="Export"
-              onClick={() => void handleExportHtml()}
-            >
-              {exporting ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Download className="size-3.5" />
-              )}
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
-          ) : null}
+          <AnalysisItemToolbar
+            editing={editing}
+            saving={saving}
+            deleting={deleting}
+            exporting={exporting}
+            tab={tab}
+            onTabChange={setTab}
+            onEdit={() => {
+              setEditing(true);
+              setActionError(null);
+            }}
+            onCancelEdit={() => {
+              setEditing(false);
+              setActionError(null);
+            }}
+            onSave={() => void handleSave()}
+            onDeleteRequest={() => setConfirmDelete(true)}
+            onExport={() => void handleExportHtml()}
+          />
         </div>
       </div>
 
@@ -482,40 +456,37 @@ export function TeamReportDetail({
       ) : (
         <>
           <div ref={reportRef} className="pt-8 sm:pt-10">
-            <header data-pdf-block className="pb-2">
-              <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-                <p className="label-caps text-muted-foreground">
-                  {report.period || "Team report"}
-                </p>
-                <ReportCloudBanner />
-              </div>
-              <h1 className="mt-4 font-display text-2xl tracking-tight text-foreground sm:mt-5 sm:text-3xl lg:text-4xl">
-                {report.title}
-              </h1>
-              <div className="mt-3 space-y-0.5 text-sm text-muted-foreground">
-                {peopleCount > 0 ? (
-                  <p>
-                    {people
-                      .map((member) => displayPersonName(member.person))
-                      .join(" · ")}
-                  </p>
-                ) : null}
-                {report.subtitle ? <p>{report.subtitle}</p> : <p>Team report</p>}
-                {formatGeneratedAt(report.generatedAt) ? (
-                  <p>
-                    Generated {formatGeneratedAt(report.generatedAt)}
-                    {formatGenerationDuration(report.generationDurationMs)
-                      ? ` · took ${formatGenerationDuration(report.generationDurationMs)}`
-                      : ""}
-                  </p>
-                ) : null}
-              </div>
-              {report.headline ? (
-                <p className="mt-5 max-w-2xl text-sm leading-relaxed text-foreground sm:text-[15px]">
-                  {report.headline}
-                </p>
-              ) : null}
-            </header>
+            <DocumentMasthead
+              kind="Team report"
+              reference={report.period || "Team report"}
+              chips={<ReportCloudBanner />}
+              title={report.title}
+              standfirst={report.headline || undefined}
+              byline={
+                <>
+                  {peopleCount > 0 ? (
+                    <p className="text-foreground">
+                      {people
+                        .map((member) => displayPersonName(member.person))
+                        .join(" · ")}
+                    </p>
+                  ) : null}
+                  {report.subtitle ? (
+                    <p>{report.subtitle}</p>
+                  ) : (
+                    <p>Team report</p>
+                  )}
+                  {formatGeneratedAt(report.generatedAt) ? (
+                    <p>
+                      Generated {formatGeneratedAt(report.generatedAt)}
+                      {formatGenerationDuration(report.generationDurationMs)
+                        ? ` · took ${formatGenerationDuration(report.generationDurationMs)}`
+                        : ""}
+                    </p>
+                  ) : null}
+                </>
+              }
+            />
 
             <TeamReportIndex sections={index} />
 

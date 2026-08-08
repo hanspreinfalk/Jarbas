@@ -60,7 +60,7 @@ export function PeriodBadge({
   return (
     <span
       className={cn(
-        "shrink-0 border border-sky/60 bg-sky/35 px-1.5 py-0.5 text-right text-[10px] font-medium leading-snug text-navy",
+        "shrink-0 border border-sky/60 bg-sky/35 px-1.5 py-0.5 text-right text-[10px] font-medium leading-snug text-navy dark:border-sky/40 dark:bg-sky/10 dark:text-sky",
         className,
       )}
     >

@@ -1,5 +1,11 @@
 import { type ReactNode } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import {
+  Download,
+  MoreHorizontal,
+  Pencil,
+  ScrollText,
+  Trash2,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -9,6 +15,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 
@@ -81,24 +94,45 @@ export function TextInput({
 /** Alias used by detail pages */
 export const FieldInput = TextInput;
 
+type DetailTab = "details" | "ai";
+
+/**
+ * Clean detail-page actions: Cancel/Save while editing, otherwise a single ⋯ menu
+ * for Analysis run, Edit, Export, and Delete.
+ */
 export function AnalysisItemToolbar({
   editing,
   saving,
   deleting,
+  exporting,
+  tab = "details",
+  onTabChange,
   onEdit,
   onCancelEdit,
   onSave,
   onDeleteRequest,
-  leading,
+  onExport,
+  showAnalysisRun = true,
+  showEdit = true,
+  showDelete = true,
+  showExport = true,
 }: {
   editing: boolean;
   saving?: boolean;
   deleting?: boolean;
+  exporting?: boolean;
+  tab?: DetailTab;
+  onTabChange?: (tab: DetailTab) => void;
   onEdit: () => void;
   onCancelEdit: () => void;
   onSave: () => void;
   onDeleteRequest: () => void;
-  /** Optional control rendered immediately before Edit (e.g. Analysis run). */
+  onExport?: () => void;
+  showAnalysisRun?: boolean;
+  showEdit?: boolean;
+  showDelete?: boolean;
+  showExport?: boolean;
+  /** @deprecated unused — kept so older call sites type-check during migration */
   leading?: ReactNode;
 }) {
   if (editing) {
@@ -127,31 +161,78 @@ export function AnalysisItemToolbar({
     );
   }
 
+  const viewingRun = tab === "ai";
+  const canToggleRun = showAnalysisRun && Boolean(onTabChange);
+  const canExport = showExport && Boolean(onExport);
+  const hasItems = canToggleRun || showEdit || canExport || showDelete;
+  if (!hasItems) return null;
+
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      {leading}
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="rounded-none"
-        onClick={onEdit}
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            type="button"
+            variant="outline"
+            size="icon-sm"
+            className="rounded-none"
+            aria-label="Actions"
+          />
+        }
       >
-        <Pencil className="size-3.5" />
-        Edit
-      </Button>
-      <Button
-        type="button"
-        variant="outline"
-        size="sm"
-        className="rounded-none text-destructive hover:bg-destructive/5 hover:text-destructive"
-        disabled={deleting}
-        onClick={onDeleteRequest}
-      >
-        <Trash2 className="size-3.5" />
-        Delete
-      </Button>
-    </div>
+        <MoreHorizontal className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="min-w-44 rounded-none">
+        {canToggleRun ? (
+          <DropdownMenuItem
+            className="rounded-none"
+            onClick={() => onTabChange?.(viewingRun ? "details" : "ai")}
+          >
+            <ScrollText className="size-3.5" />
+            {viewingRun ? "Result" : "Analysis run"}
+          </DropdownMenuItem>
+        ) : null}
+        {showEdit ? (
+          <DropdownMenuItem
+            className="rounded-none"
+            onClick={() => {
+              onTabChange?.("details");
+              onEdit();
+            }}
+          >
+            <Pencil className="size-3.5" />
+            Edit
+          </DropdownMenuItem>
+        ) : null}
+        {canExport ? (
+          <DropdownMenuItem
+            className="rounded-none"
+            disabled={exporting}
+            onClick={() => {
+              onTabChange?.("details");
+              onExport?.();
+            }}
+          >
+            <Download className="size-3.5" />
+            {exporting ? "Exporting…" : "Export"}
+          </DropdownMenuItem>
+        ) : null}
+        {showDelete && (canToggleRun || showEdit || canExport) ? (
+          <DropdownMenuSeparator />
+        ) : null}
+        {showDelete ? (
+          <DropdownMenuItem
+            variant="destructive"
+            className="rounded-none"
+            disabled={deleting}
+            onClick={onDeleteRequest}
+          >
+            <Trash2 className="size-3.5" />
+            Delete
+          </DropdownMenuItem>
+        ) : null}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 

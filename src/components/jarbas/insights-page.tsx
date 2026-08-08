@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ArrowLeft, Download, Loader2, LoaderCircle, Sparkles } from "lucide-react";
+import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
 import {
   AnalysisItemToolbar,
   DeleteConfirmDialog,
@@ -16,7 +16,7 @@ import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
-import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
+import { DocumentMasthead } from "@/components/jarbas/document-masthead";
 import { PeriodBadge } from "@/components/jarbas/period-badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -36,7 +36,7 @@ function confidenceBadgeClass(confidence: string) {
     return "border-primary/30 bg-primary text-primary-foreground";
   }
   if (value === "medium" || value === "med") {
-    return "border-border bg-sky text-navy";
+    return "border-border bg-sky text-navy dark:border-sky/40 dark:bg-sky/10 dark:text-sky";
   }
   if (value === "low") {
     return "border-destructive/30 bg-destructive/10 text-destructive";
@@ -225,52 +225,33 @@ function InsightDetail({
           All insights
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          {!editing ? (
-            <AnalysisRunButton tab={tab} onTabChange={setTab} />
-          ) : null}
-          {tab === "details" ? (
-            <AnalysisItemToolbar
-              editing={editing}
-              saving={saving}
-              deleting={deleting}
-              onEdit={() => {
-                setDraft(toDraft(insight));
-                setEditing(true);
-                setActionError(null);
-              }}
-              onCancelEdit={() => {
-                setDraft(toDraft(insight));
-                setEditing(false);
-                setActionError(null);
-              }}
-              onSave={() => void handleSave()}
-              onDeleteRequest={() => setConfirmDelete(true)}
-            />
-          ) : null}
-          {tab === "details" && !editing ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-none"
-              disabled={exporting}
-              aria-label="Export"
-              onClick={() => void handleExport()}
-            >
-              {exporting ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Download className="size-3.5" />
-              )}
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
-          ) : null}
+          <AnalysisItemToolbar
+            editing={editing}
+            saving={saving}
+            deleting={deleting}
+            exporting={exporting}
+            tab={tab}
+            onTabChange={setTab}
+            onEdit={() => {
+              setDraft(toDraft(insight));
+              setEditing(true);
+              setActionError(null);
+            }}
+            onCancelEdit={() => {
+              setDraft(toDraft(insight));
+              setEditing(false);
+              setActionError(null);
+            }}
+            onSave={() => void handleSave()}
+            onDeleteRequest={() => setConfirmDelete(true)}
+            onExport={() => void handleExport()}
+          />
         </div>
       </div>
 
       <div ref={exportRef}>
-      <header className="mt-6 border-b border-border pb-8">
-        {editing ? (
+      {editing ? (
+        <header className="mt-6 border-b border-border pb-8">
           <div className="space-y-4">
             <div className="space-y-1.5">
               <FieldLabel>Title</FieldLabel>
@@ -301,27 +282,29 @@ function InsightDetail({
               </div>
             </div>
           </div>
-        ) : (
-          <>
-            <ConfidenceBadge confidence={insight.confidence} />
-            <h1 className="mt-3 font-display text-2xl tracking-tight text-foreground sm:text-3xl">
-              {insight.title}
-            </h1>
-            {insight.category ? (
-              <p className="mt-3 text-sm text-muted-foreground">
-                {insight.category}
-              </p>
-            ) : null}
-            <PeriodBadge
-              className="mt-2 inline-flex"
-              startDate={insight.startDate}
-              endDate={insight.endDate}
-              firstSeen={insight.firstSeen}
-              lastSeen={insight.lastSeen}
-            />
-          </>
-        )}
-      </header>
+        </header>
+      ) : (
+        <DocumentMasthead
+          kind="Insight"
+          className="mt-6"
+          reference={formatRangeLabel(
+            insight.startDate ?? "",
+            insight.endDate ?? "",
+          )}
+          size="md"
+          chips={<ConfidenceBadge confidence={insight.confidence} />}
+          title={insight.title}
+          byline={insight.category ? <p>{insight.category}</p> : undefined}
+        >
+          <PeriodBadge
+            className="mt-3 inline-flex"
+            startDate={insight.startDate}
+            endDate={insight.endDate}
+            firstSeen={insight.firstSeen}
+            lastSeen={insight.lastSeen}
+          />
+        </DocumentMasthead>
+      )}
 
       {actionError ? (
         <p className="mt-4 border border-destructive/30 bg-destructive/5 px-3 py-2 text-sm text-destructive">

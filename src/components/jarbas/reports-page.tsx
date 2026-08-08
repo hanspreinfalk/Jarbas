@@ -3,10 +3,8 @@ import { useAuth } from "@clerk/clerk-react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
-  Download,
   FileBarChart,
   Loader2,
-  LoaderCircle,
   Sparkles,
 } from "lucide-react";
 import {
@@ -29,7 +27,7 @@ import {
 } from "@/components/jarbas/analysis-item-editor";
 import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
-import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
+import { DocumentMasthead } from "@/components/jarbas/document-masthead";
 import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
 import { ReportDraftEditors } from "@/components/jarbas/report-draft-editors";
 import { PeriodBadge } from "@/components/jarbas/period-badge";
@@ -288,45 +286,30 @@ function ReportDetail({
           {backLabel}
         </Button>
         <div className="flex flex-wrap items-center gap-2">
-          {!readOnly && !editing ? (
-            <AnalysisRunButton tab={tab} onTabChange={setTab} />
-          ) : null}
-          {tab === "details" && !readOnly ? (
-            <AnalysisItemToolbar
-              editing={editing}
-              saving={saving}
-              deleting={deleting}
-              onEdit={() => {
-                setDraft(toReportDraft(report));
-                setEditing(true);
-                setActionError(null);
-              }}
-              onCancelEdit={() => {
-                setDraft(toReportDraft(report));
-                setEditing(false);
-                setActionError(null);
-              }}
-              onSave={() => void handleSave()}
-              onDeleteRequest={() => setConfirmDelete(true)}
-            />
-          ) : null}
-          {tab === "details" && !editing ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="rounded-none"
-              disabled={exporting}
-              onClick={() => void handleExport()}
-            >
-              {exporting ? (
-                <LoaderCircle className="size-3.5 animate-spin" />
-              ) : (
-                <Download className="size-3.5" />
-              )}
-              {exporting ? "Exporting…" : "Export"}
-            </Button>
-          ) : null}
+          <AnalysisItemToolbar
+            editing={editing}
+            saving={saving}
+            deleting={deleting}
+            exporting={exporting}
+            tab={tab}
+            onTabChange={!readOnly ? setTab : undefined}
+            showAnalysisRun={!readOnly}
+            showEdit={!readOnly}
+            showDelete={!readOnly}
+            onEdit={() => {
+              setDraft(toReportDraft(report));
+              setEditing(true);
+              setActionError(null);
+            }}
+            onCancelEdit={() => {
+              setDraft(toReportDraft(report));
+              setEditing(false);
+              setActionError(null);
+            }}
+            onSave={() => void handleSave()}
+            onDeleteRequest={() => setConfirmDelete(true)}
+            onExport={() => void handleExport()}
+          />
         </div>
       </div>
 
@@ -358,33 +341,27 @@ function ReportDetail({
       ) : (
       <>
       <div ref={reportRef} className="pt-8 sm:pt-10">
-      {/* Header */}
-      <header className="pb-2">
+      <DocumentMasthead
+        kind="Work report"
+        reference={report.period}
+        chips={<ReportCloudBanner />}
+        title={report.title}
+        standfirst={report.headline}
+        byline={
           <>
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <p className="label-caps text-muted-foreground">{report.period}</p>
-              <ReportCloudBanner />
-            </div>
-            <h1 className="mt-4 font-display text-2xl tracking-tight text-foreground sm:mt-5 sm:text-3xl lg:text-4xl">
-              {report.title}
-            </h1>
-            <div className="mt-3 space-y-0.5 text-sm text-muted-foreground">
-              <p>{report.person}</p>
-              {report.role ? <p>{report.role}</p> : null}
-              {formatGeneratedAt(report.generatedAt) ? (
-                <p>
-                  Generated {formatGeneratedAt(report.generatedAt)}
-                  {formatGenerationDuration(report.generationDurationMs)
-                    ? ` · took ${formatGenerationDuration(report.generationDurationMs)}`
-                    : ""}
-                </p>
-              ) : null}
-            </div>
-            <p className="mt-5 max-w-2xl text-sm leading-relaxed text-foreground sm:text-[15px]">
-              {report.headline}
-            </p>
+            <p className="text-foreground">{report.person}</p>
+            {report.role ? <p>{report.role}</p> : null}
+            {formatGeneratedAt(report.generatedAt) ? (
+              <p>
+                Generated {formatGeneratedAt(report.generatedAt)}
+                {formatGenerationDuration(report.generationDurationMs)
+                  ? ` · took ${formatGenerationDuration(report.generationDurationMs)}`
+                  : ""}
+              </p>
+            ) : null}
           </>
-      </header>
+        }
+      />
 
       <ReportIndex />
 
