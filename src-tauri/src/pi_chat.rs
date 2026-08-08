@@ -60,6 +60,8 @@ struct PiProcess {
     provider: String,
     model: String,
     composio_user_id: Option<String>,
+    /// Whether read-only connector prompt rules were loaded for this process.
+    has_connectors: bool,
 }
 
 pub struct AskChatState {
@@ -307,7 +309,11 @@ fn stop_process(state: &AskChatState) {
         .clear();
 }
 
-fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
+fn start_process(
+    app: &AppHandle,
+    state: &AskChatState,
+    has_connectors: bool,
+) -> Result<(), String> {
     let (provider, model, env_keys) = llm_settings::load_runtime_llm()?;
     let node = pi_agent::find_node(app).ok_or_else(|| {
         "Bundled Node runtime is missing. Run npm run fetch-node, then rebuild.".to_string()
@@ -338,6 +344,16 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
             // Still start Ask for local questions; skill will explain app tools unavailable.
             let _ = crate::composio::configure_composio_mcp_for_user(None);
         }
+    }
+
+    // Keep APPEND_SYSTEM + composio skill in sync with connector presence.
+    pi_agent::write_connector_prompt_files(has_connectors).map_err(|error| {
+        format!("Could not write connector prompt files: {error}")
+    })?;
+    if has_connectors {
+        eprintln!("[ask] connector read-only rules enabled");
+    } else {
+        eprintln!("[ask] no connectors; skipped read-only rules");
     }
 
     let node_bin = node.parent().map(|path| path.to_path_buf()).unwrap_or_default();
@@ -428,6 +444,7 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
             provider: provider.as_str().into(),
             model: model.clone(),
             composio_user_id,
+            has_connectors,
         });
     }
 
@@ -488,7 +505,11 @@ fn start_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
     Ok(())
 }
 
-fn ensure_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
+fn ensure_process(
+    app: &AppHandle,
+    state: &AskChatState,
+    has_connectors: bool,
+) -> Result<(), String> {
     let (provider, model, _) = llm_settings::load_runtime_llm()?;
     let desired_composio_user = state
         .composio_user_id
@@ -503,12 +524,13 @@ fn ensure_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
                 proc.provider != provider.as_str()
                     || proc.model != model
                     || proc.composio_user_id != desired_composio_user
+                    || proc.has_connectors != has_connectors
             }
         }
     };
     if needs_restart {
         stop_process(state);
-        start_process(app, state)?;
+        start_process(app, state, has_connectors)?;
     } else if let Err(error) = send_command(
         state,
         json!({
@@ -521,7 +543,7 @@ fn ensure_process(app: &AppHandle, state: &AskChatState) -> Result<(), String> {
         // Process may be half-dead; restart once.
         eprintln!("[ask] set_model failed, restarting: {error}");
         stop_process(state);
-        start_process(app, state)?;
+        start_process(app, state, has_connectors)?;
     }
     Ok(())
 }
@@ -588,6 +610,31 @@ pub async fn ask_send_prompt(
         }
 
         let state = app.state::<AskChatState>();
+        let prior_has_connectors = state
+            .process
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .map(|proc| proc.has_connectors)
+            .unwrap_or(false);
+        let has_connectors = match crate::composio::user_has_active_connectors(composio_user_id.as_deref())
+        {
+            Ok(value) => value,
+            Err(error) => {
+                // Fail closed on lookup errors when signed in: keep prior rules if
+                // any, otherwise assume connectors may exist so read-only stays on.
+                let fallback = if prior_has_connectors || composio_user_id.as_deref().map(str::trim).is_some_and(|v| !v.is_empty())
+                {
+                    true
+                } else {
+                    false
+                };
+                eprintln!(
+                    "[ask] connector lookup failed, using fallback={fallback} (prior={prior_has_connectors}): {error}"
+                );
+                fallback
+            }
+        };
         {
             let mut guard = state
                 .composio_user_id
@@ -597,6 +644,12 @@ pub async fn ask_send_prompt(
                 .map(|value| value.trim().to_string())
                 .filter(|value| !value.is_empty());
         }
+
+        let external_apps = if has_connectors {
+            "External apps: use Composio Tool Router MCP tools from the composio skill; READ ONLY - never send/post/create/update/delete in connected apps. Never bash the composio CLI."
+        } else {
+            "External apps: use Composio Tool Router MCP tools from the composio skill when connectors exist. Never bash the composio CLI."
+        };
 
         let prompt = match (
             time_zone
@@ -609,15 +662,15 @@ pub async fn ask_send_prompt(
                 .filter(|value| !value.is_empty()),
         ) {
             (Some(tz), Some(local)) => format!(
-                "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
+                "[Context: User timezone is {tz}. Current local time is {local}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. {external_apps}]\n\n{trimmed}"
             ),
             (Some(tz), None) => format!(
-                "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. External apps: use Composio Tool Router MCP tools from the composio skill. Never bash the composio CLI.]\n\n{trimmed}"
+                "[Context: User timezone is {tz}. Convert every date/time you show into this local timezone. Never show raw UTC ISO-8601. Audio: Jarbas does not have access to audio yet; do not say \"no captured audio\" - say we do not have access to audio yet and suggest connecting Granola or similar for transcripts. Never mention Screenpipe or other capture vendor/SDK names to the user. {external_apps}]\n\n{trimmed}"
             ),
             _ => trimmed,
         };
 
-        ensure_process(&app, &state)?;
+        ensure_process(&app, &state, has_connectors)?;
         send_command(
             &state,
             json!({

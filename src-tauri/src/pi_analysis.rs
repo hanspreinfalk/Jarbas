@@ -815,6 +815,9 @@ fn start_process(
     model: &str,
     env_keys: &std::collections::BTreeMap<String, String>,
     composio_user_id: Option<&str>,
+    // When Some, rewrite shared prompt files for connector read-only rules.
+    // None leaves files alone (e.g. TeamReports).
+    connector_prompt_sync: Option<bool>,
 ) -> Result<(), String> {
     let node = pi_agent::find_node(app).ok_or_else(|| {
         "Bundled Node runtime is missing. Run npm run fetch-node, then rebuild.".to_string()
@@ -842,6 +845,16 @@ fn start_process(
         Err(error) => {
             eprintln!("[analysis] composio MCP setup failed: {error}");
             // Continue with local capture only.
+        }
+    }
+
+    if let Some(has_connectors) = connector_prompt_sync {
+        if let Err(error) = crate::pi_agent::write_connector_prompt_files(has_connectors) {
+            eprintln!("[analysis] could not write connector prompt files: {error}");
+        } else if has_connectors {
+            eprintln!("[analysis] connector read-only rules enabled");
+        } else {
+            eprintln!("[analysis] no connectors; skipped read-only rules");
         }
     }
 
@@ -1036,35 +1049,6 @@ fn send_command(
     }
 }
 
-fn connected_toolkits(user_id: Option<&str>) -> Vec<String> {
-    let Some(user_id) = user_id.map(str::trim).filter(|value| !value.is_empty()) else {
-        return Vec::new();
-    };
-    match tauri::async_runtime::block_on(crate::composio::list_composio_connected_accounts(
-        user_id.to_string(),
-    )) {
-        Ok(response) => {
-            let mut slugs: Vec<String> = response
-                .items
-                .into_iter()
-                .filter(|item| {
-                    let status = item.status.to_ascii_uppercase();
-                    status == "ACTIVE" || status == "CONNECTED" || status.is_empty()
-                })
-                .map(|item| item.toolkit_slug)
-                .filter(|slug| !slug.trim().is_empty())
-                .collect();
-            slugs.sort();
-            slugs.dedup();
-            slugs
-        }
-        Err(error) => {
-            eprintln!("[analysis] could not list connected accounts: {error}");
-            Vec::new()
-        }
-    }
-}
-
 fn build_prompt(
     kind: AnalysisKind,
     start_date: &str,
@@ -1074,6 +1058,7 @@ fn build_prompt(
     local_time: &str,
     connected_toolkits: &[String],
     composio_attached: bool,
+    toolkit_list_failed: bool,
 ) -> String {
     let job_path = JarbasPaths::analysis_job_file(job_id);
     let db_path = JarbasPaths::root().join("db.sqlite");
@@ -1250,29 +1235,44 @@ TEAM report: synthesize ONLY from staged member report JSON files (see PART C). 
     };
 
     let toolkit_list = if connected_toolkits.is_empty() {
-        "(none listed - still try COMPOSIO_SEARCH_TOOLS to discover what is available)".to_string()
+        "(none)".to_string()
     } else {
         connected_toolkits.join(", ")
     };
 
-    let composio_section = if composio_attached {
+    let composio_section = if composio_attached && !connected_toolkits.is_empty() {
         format!(
             r#"Connected Composio toolkits for this user (MUST cover each one for the timeframe):
 {toolkit_list}
 
 Composio investigation (required when MCP tools are available):
+- READ ONLY. Connected apps may only be fetched/listed/searched. Never send mail, post
+  messages, create/update/delete issues or docs, or mutate anything in any toolkit.
 - This overrides the usual "one or two tool calls" chat habit. This is a deep analysis job.
-- For EVERY connected toolkit above, call COMPOSIO_SEARCH_TOOLS with a use case scoped to {period}
+- For EVERY connected toolkit above, call COMPOSIO_SEARCH_TOOLS with a READ use case scoped to {period}
   (examples: "list emails from {start_date} to {end_date}", "slack messages this week",
   "calendar events between {start_date} and {end_date}", "github activity in range",
   "notion pages edited recently", "linear issues updated in range").
 - Then COMPOSIO_GET_TOOL_SCHEMAS as needed and COMPOSIO_MULTI_EXECUTE_TOOL to pull the actual
-  activity inside the timeframe. Prefer read/list/search tools. Never send mail, post messages,
-  create issues, or mutate anything.
+  activity inside the timeframe. Only read/list/search/get tools.
 - If a toolkit is not connected or a call fails, note it and continue with the rest. Do not stop
   the whole analysis after one Composio failure.
 - Synthesize connected-app facts with screen/OCR evidence (meetings, emails, PRs, docs, chats).
 - Never bash the composio CLI. Never invent tool slugs.
+"#
+        )
+    } else if composio_attached && toolkit_list_failed {
+        format!(
+            r#"Composio MCP is attached, but listing connected accounts failed for this run.
+Do NOT assume the user has zero connectors. Use COMPOSIO_SEARCH_TOOLS / COMPOSIO_MULTI_EXECUTE_TOOL
+to discover and READ activity for {period}. READ ONLY — never send/post/create/update/delete.
+If tools fail, note that and continue with local capture. Never invent external app activity.
+"#
+        )
+    } else if composio_attached {
+        format!(
+            r#"Composio MCP is attached but this user has no connected apps yet.
+Skip connected-app investigation. Do not invent external app activity.
 "#
         )
     } else {
@@ -1701,11 +1701,32 @@ pub fn start_analysis(
             .filter(|value| !value.is_empty())
             .map(str::to_string)
     };
-    let toolkits = if skip_composio {
-        Vec::new()
+    let toolkit_lookup = if skip_composio {
+        Ok(None)
     } else {
-        connected_toolkits(composio_user.as_deref())
+        crate::composio::active_connected_toolkit_slugs(composio_user.as_deref())
     };
+    let toolkits = match &toolkit_lookup {
+        Ok(Some(slugs)) => slugs.clone(),
+        Ok(None) => Vec::new(),
+        Err(error) => {
+            eprintln!("[analysis] could not list connected accounts: {error}");
+            Vec::new()
+        }
+    };
+    // Only rewrite shared prompt files for personal analysis jobs with a
+    // definitive connector list. TeamReports / API failures leave Ask's rules alone.
+    let connector_prompt_sync = if skip_composio || composio_user.is_none() {
+        None
+    } else {
+        match &toolkit_lookup {
+            Ok(Some(slugs)) => Some(!slugs.is_empty()),
+            Ok(None) => None,
+            // Fail closed: keep/enable read-only rules when listing fails.
+            Err(_) => Some(true),
+        }
+    };
+    let toolkit_list_failed = toolkit_lookup.is_err();
     let composio_attached = composio_user.is_some() && crate::composio_api_key().is_ok();
 
     stop_process(&state);
@@ -1716,6 +1737,7 @@ pub fn start_analysis(
         &llm_model,
         &env_keys,
         composio_user.as_deref(),
+        connector_prompt_sync,
     )?;
 
     // Re-check after configure: session may have failed.
@@ -1753,6 +1775,7 @@ pub fn start_analysis(
         local,
         &toolkits,
         composio_attached,
+        toolkit_list_failed,
     );
     send_command(
         &state,

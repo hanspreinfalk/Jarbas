@@ -63,6 +63,7 @@ export function OrgPlanPricing() {
   });
   const [booking, setBooking] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState(false);
+  const [syncingSeats, setSyncingSeats] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const syncedKey = useRef<string | null>(null);
 
@@ -72,18 +73,33 @@ export function OrgPlanPricing() {
   const onFree = !onBusiness && !onEnterprise;
   const planSlug = activeOrgPlanSlug({ onBusiness, onEnterprise });
 
+  async function syncSeats(nextPlan: string, options?: { force?: boolean }) {
+    if (!orgId) return;
+    const key = `${orgId}:${nextPlan}`;
+    if (!options?.force && syncedKey.current === key) return;
+
+    setSyncingSeats(true);
+    try {
+      await invoke("sync_org_seat_limit", {
+        organizationId: orgId,
+        planSlug: nextPlan,
+        force: options?.force ?? false,
+      });
+      syncedKey.current = key;
+      await organization?.reload();
+      // Refresh auth claims so `has({ plan })` catches up after checkout.
+      await clerk.session?.reload();
+    } finally {
+      setSyncingSeats(false);
+    }
+  }
+
   useEffect(() => {
     if (!orgId || !authLoaded || !orgLoaded) return;
-    const key = `${orgId}:${planSlug}`;
-    if (syncedKey.current === key) return;
-    syncedKey.current = key;
-
-    void invoke("sync_org_seat_limit", {
-      organizationId: orgId,
-      planSlug,
-    }).catch((err) => {
+    void syncSeats(planSlug).catch((err) => {
       console.warn("Could not sync org seat limit", err);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- sync when org/plan changes
   }, [authLoaded, orgId, orgLoaded, planSlug]);
 
   async function bookEnterprise() {
@@ -121,13 +137,21 @@ export function OrgPlanPricing() {
         for: "organization",
         onClose: () => setCheckoutBusy(false),
         onSubscriptionComplete: () => {
-          syncedKey.current = null;
-          void invoke("sync_org_seat_limit", {
-            organizationId: orgId,
-            planSlug: ORG_PLAN_SLUGS.business,
-          }).catch((err) => {
-            console.warn("Could not sync Business seat limit", err);
-          });
+          void (async () => {
+            try {
+              // Force Business seats immediately — don't wait for has() to catch up,
+              // and don't let a stale Free sync overwrite this.
+              await syncSeats(ORG_PLAN_SLUGS.business, { force: true });
+            } catch (err) {
+              setActionError(
+                err instanceof Error
+                  ? err.message
+                  : "Upgraded, but seats did not update. Open Pricing again to retry.",
+              );
+            } finally {
+              setCheckoutBusy(false);
+            }
+          })();
         },
       });
 
@@ -158,6 +182,19 @@ export function OrgPlanPricing() {
 
   return (
     <div>
+      <p className="mb-4 text-sm text-muted-foreground">
+        Seat limit for this organization:{" "}
+        <span className="font-medium text-foreground tabular-nums">
+          {organization.maxAllowedMemberships ?? "—"}
+        </span>
+        {syncingSeats ? (
+          <span className="ml-2 inline-flex items-center gap-1 text-xs">
+            <Loader2 className="size-3 animate-spin" />
+            Updating…
+          </span>
+        ) : null}
+      </p>
+
       <div className="grid gap-4 sm:grid-cols-3">
         {TIERS.map((tier) => {
           const isFree = tier.slug === ORG_PLAN_SLUGS.free;

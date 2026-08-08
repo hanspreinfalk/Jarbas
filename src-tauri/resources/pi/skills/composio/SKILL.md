@@ -2,8 +2,8 @@
 name: composio
 description: >-
   Use Composio Tool Router MCP for the signed-in user's connected apps (Gmail,
-  Slack, GitHub, Notion, Calendar, and 1000+ more). Use when the user asks to
-  email, message, create issues, read docs, or otherwise act in an external app.
+  Slack, GitHub, Notion, Calendar, and 1000+ more). Use when the user asks about
+  data in an external app.
 ---
 
 # Composio
@@ -25,16 +25,9 @@ or any personal `~/.composio` binary. Those thrash and do not auth this app.
 If Composio MCP tools are missing, say app tools are unavailable and stop. Do
 not debug with bash.
 
-## Read-only access
-
-Jarbas connectors are **read-only**. The session only exposes tools tagged
-`readOnlyHint`. Do **not** attempt to send, create, update, delete, or otherwise
-write in external apps. If the user asks for a write action, explain that
-connections are read-only and suggest they do it in the app themselves.
-
 ## Workflow (strict)
 
-1. Call **COMPOSIO_SEARCH_TOOLS** once with a **read** use case
+1. Call **COMPOSIO_SEARCH_TOOLS** once with the use case
    (example: `read recent Gmail emails`).
 2. If a toolkit is not connected, tell the user to open **Tools → Connectors**
    in Jarbas. Do not open browsers yourself.
@@ -52,4 +45,3 @@ fix is clearly indicated. Never run exploratory loops of 5+ tools.
 - Never invent tool slugs or arguments.
 - Stay inside the injected user identity.
 - Keep answers short; do not dump huge JSON.
-- Never write to connected apps (send email, post messages, create issues, etc.).

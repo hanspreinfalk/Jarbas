@@ -289,9 +289,9 @@ export function ConnectorsPage() {
   const connected = useMemo<ConnectedToolkit[]>(() => {
     const bySlug = new Map<string, ComposioConnectedAccount[]>();
     for (const account of accounts) {
-      if (account.status !== "ACTIVE" && account.status !== "INITIALIZING" && account.status !== "INITIATED") {
-        continue;
-      }
+      // Only fully authorized accounts count as connected. Composio creates
+      // INITIALIZING/INITIATED rows as soon as a connect link is opened.
+      if (account.status !== "ACTIVE") continue;
       const list = bySlug.get(account.toolkitSlug) ?? [];
       list.push(account);
       bySlug.set(account.toolkitSlug, list);
@@ -300,9 +300,7 @@ export function ConnectorsPage() {
     return Array.from(bySlug.entries())
       .map(([slug, toolkitAccounts]) => ({
         toolkit: toolkitMeta(slug, items),
-        accounts: toolkitAccounts.filter((account) => account.status === "ACTIVE").length
-          ? toolkitAccounts.filter((account) => account.status === "ACTIVE")
-          : toolkitAccounts,
+        accounts: toolkitAccounts,
       }))
       .sort((a, b) => a.toolkit.name.localeCompare(b.toolkit.name));
   }, [accounts, items]);
@@ -311,6 +309,16 @@ export function ConnectorsPage() {
     () => new Set(connected.map((item) => item.toolkit.slug)),
     [connected],
   );
+  const pendingSlugs = useMemo(() => {
+    const slugs = new Set<string>();
+    for (const account of accounts) {
+      const status = account.status.toUpperCase();
+      if (status === "INITIALIZING" || status === "INITIATED") {
+        slugs.add(account.toolkitSlug);
+      }
+    }
+    return slugs;
+  }, [accounts]);
   const managing =
     connected.find((item) => item.toolkit.slug === managingSlug) ?? null;
 
@@ -383,7 +391,7 @@ export function ConnectorsPage() {
         },
       );
       await openUrl(link.redirectUrl);
-      setManagingSlug(toolkit.slug);
+      // Don't open Manage yet — the account is only pending until OAuth finishes.
       await refreshConnected();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : String(err));
@@ -441,8 +449,7 @@ export function ConnectorsPage() {
             Connectors
           </h1>
           <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-            Connect the tools you already use. Connections request read-only
-            access — Jarbas can view your data, not change it.
+            Connect the tools you already use.
           </p>
         </div>
         <p className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -576,6 +583,8 @@ export function ConnectorsPage() {
                   )
                 : items.map((toolkit) => {
                     const isConnected = connectedSlugs.has(toolkit.slug);
+                    const isPending =
+                      !isConnected && pendingSlugs.has(toolkit.slug);
                     const category = toolkit.meta?.categories?.[0]?.name;
                     return (
                       <article
@@ -592,6 +601,10 @@ export function ConnectorsPage() {
                               {isConnected ? (
                                 <span className="label-caps shrink-0 text-[10px] text-primary">
                                   Connected
+                                </span>
+                              ) : isPending ? (
+                                <span className="label-caps shrink-0 text-[10px] text-muted-foreground">
+                                  Connecting
                                 </span>
                               ) : toolkit.no_auth ? (
                                 <span className="label-caps shrink-0 text-[10px] text-muted-foreground">
@@ -626,7 +639,11 @@ export function ConnectorsPage() {
                             variant="outline"
                             size="sm"
                             className="w-full rounded-none"
-                            disabled={controlsBusy || toolkit.no_auth}
+                            disabled={
+                              controlsBusy ||
+                              toolkit.no_auth ||
+                              connectingToolkit?.slug === toolkit.slug
+                            }
                             onClick={() => void startConnect(toolkit)}
                           >
                             {connectingToolkit?.slug === toolkit.slug ? (
@@ -636,7 +653,9 @@ export function ConnectorsPage() {
                             )}
                             {connectingToolkit?.slug === toolkit.slug
                               ? "Preparing…"
-                              : "Connect"}
+                              : isPending
+                                ? "Resume connect"
+                                : "Connect"}
                           </Button>
                         )}
                       </article>
@@ -696,8 +715,8 @@ export function ConnectorsPage() {
               Connecting {connectingToolkit?.name ?? "app"}
             </DialogTitle>
             <DialogDescription>
-              Preparing a read-only connection. The first connect for an app can
-              take a few seconds.
+              Preparing the connection. The first connect for an app can take a
+              few seconds.
             </DialogDescription>
           </DialogHeader>
           <div className="flex items-center gap-3 border border-border bg-muted/40 px-3 py-3 text-sm text-foreground">

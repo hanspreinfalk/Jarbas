@@ -13,6 +13,33 @@ const APPEND_SYSTEM: &str = include_str!("../resources/pi/APPEND_SYSTEM.md");
 const JARBAS_SKILL: &str = include_str!("../resources/pi/skills/jarbas/SKILL.md");
 const COMPOSIO_SKILL: &str = include_str!("../resources/pi/skills/composio/SKILL.md");
 
+/// Injected into APPEND_SYSTEM + Composio skill only when the user has connectors.
+const CONNECTORS_READ_ONLY_APPEND: &str = r#"
+## Connected apps (read-only)
+
+This user has connected external apps. You may **only read** them: fetch, search,
+list, or summarize. Never send email, post messages, create/update/delete issues
+or docs, or otherwise mutate anything in Gmail, Slack, GitHub, Notion, Calendar,
+or any other connected app. If the user asks you to write or change something
+there, refuse and tell them to do it in the app themselves.
+"#;
+
+const CONNECTORS_READ_ONLY_COMPOSIO: &str = r#"
+## Read-only (mandatory)
+
+This user has connected apps. Jarbas may **only read** them.
+
+Allowed: search, fetch, list, get, summarize.
+
+Forbidden: send, reply, forward, post, create, update, edit, delete, archive,
+invite, share, upload, or any other mutating action.
+
+If the user asks to write or change something in a connected app, refuse clearly.
+When searching for tools, prefer read use cases
+(example: `read recent Gmail emails`). Never search for send/create/delete actions.
+Never call write tools.
+"#;
+
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum PiAgentStatus {
@@ -249,12 +276,10 @@ fn write_stub_package(dir: &Path, name: &str, error_message: &str) -> Result<(),
 
 fn write_config_files(app: &AppHandle) -> Result<(), String> {
     JarbasPaths::ensure_directories()?;
-    std::fs::write(JarbasPaths::append_system(), APPEND_SYSTEM)
-        .map_err(|error| format!("Could not write APPEND_SYSTEM.md: {error}"))?;
+    // Default: no connector read-only rules (Ask/analysis refresh when connectors exist).
+    write_connector_prompt_files(false)?;
     std::fs::write(JarbasPaths::jarbas_skill_file(), JARBAS_SKILL)
         .map_err(|error| format!("Could not write jarbas skill: {error}"))?;
-    std::fs::write(JarbasPaths::composio_skill_file(), COMPOSIO_SKILL)
-        .map_err(|error| format!("Could not write composio skill: {error}"))?;
     ensure_composio_cli_on_path()?;
 
     let node = find_node(app)
@@ -284,6 +309,34 @@ fn write_config_files(app: &AppHandle) -> Result<(), String> {
 
     let cache = JarbasPaths::pi_config().join("mcp-cache.json");
     let _ = std::fs::remove_file(cache);
+    Ok(())
+}
+
+/// Write APPEND_SYSTEM + Composio skill. Read-only connector rules only when
+/// `has_connectors` is true.
+pub fn write_connector_prompt_files(has_connectors: bool) -> Result<(), String> {
+    JarbasPaths::ensure_directories()?;
+
+    let append = if has_connectors {
+        format!("{}\n{}", APPEND_SYSTEM.trim_end(), CONNECTORS_READ_ONLY_APPEND.trim_start())
+    } else {
+        APPEND_SYSTEM.to_string()
+    };
+    std::fs::write(JarbasPaths::append_system(), append)
+        .map_err(|error| format!("Could not write APPEND_SYSTEM.md: {error}"))?;
+
+    let composio = if has_connectors {
+        format!(
+            "{}\n{}",
+            COMPOSIO_SKILL.trim_end(),
+            CONNECTORS_READ_ONLY_COMPOSIO.trim_start()
+        )
+    } else {
+        COMPOSIO_SKILL.to_string()
+    };
+    std::fs::write(JarbasPaths::composio_skill_file(), composio)
+        .map_err(|error| format!("Could not write composio skill: {error}"))?;
+
     Ok(())
 }
 
