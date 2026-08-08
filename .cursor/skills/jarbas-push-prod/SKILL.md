@@ -1,70 +1,54 @@
 ---
 name: jarbas-push-prod
 description: >-
-  Deploys Jarbas Convex functions to the production deployment, verifies prod
-  environment variables, and checks Linear (Jarbas team) for Launch issues that
-  need status updates. Use when the user says "push to prod", "deploy to
-  production", "convex deploy prod", "ship backend to prod", or wants a
-  production Convex push with a Linear hygiene check.
+  Ships the current Jarbas backend/work by running `npx convex dev`, committing
+  and pushing Cursor skills under `.cursor/skills/`, pushing `main` to GitHub,
+  and checking Linear (Jarbas team) for status updates. Use ONLY when the user
+  says "jarbas push to prod", "push to prod", or "ship to prod". Do NOT run
+  this full workflow just because they mentioned `npx convex dev` alone.
 ---
 
-# Jarbas push to prod (Convex + Linear)
+# Jarbas push to prod (Convex dev + Cursor skills + GitHub main + Linear)
 
-Ship **Convex backend** to the project’s default **production** deployment, confirm
-prod env vars, then review Linear for related Launch work. Desktop installer
-refresh is **out of scope** unless the user also asks — use
+Despite the name, this skill does **not** run `npx convex deploy` to Convex
+production. Today the app still uses Convex **dev**. Saying **“jarbas push to
+prod”** means:
+
+1. Push Convex functions with **`npx convex dev`**
+2. Commit + push **Cursor skills** under `.cursor/skills/` (if dirty)
+3. Push **`main`** to GitHub
+4. Check Linear for anything that should be updated
+
+Desktop installer refresh is **out of scope** unless the user also asks — use
 [jarbas-build-releases](../jarbas-build-releases/SKILL.md).
 
-## Canonical deployments
+## Trigger rules
+
+| User says | Do this skill? |
+|---|---|
+| “jarbas push to prod” / “push to prod” / “ship to prod” | **Yes** — full workflow below |
+| Only “npx convex dev” / “convex:dev” / “sync convex” | **No** — just run that command if asked; skip skills + GitHub + Linear unless they also ask |
+
+## Canonical targets
 
 | Item | Value |
 |---|---|
 | Convex team | `hans-preinfalk` |
 | Convex project | `jarbas` |
-| Dev deployment | `artful-marten-116` (`dev:…` in `.env.local`) |
-| Prod deployment | `standing-puffin-912` (default target of `npx convex deploy`) |
-
-`npx convex deploy` pushes to **prod** even when `.env.local` points at dev. Do
-**not** confuse this with `npx convex dev` (dev only).
-
-## Required prod env vars
-
-Prod must have at least what auth + Composio need (same names as dev):
-
-| Name | Purpose |
-|---|---|
-| `CLERK_JWT_ISSUER_DOMAIN` | Clerk Frontend API URL / JWT issuer used by `convex/auth.config.ts` |
-| `COMPOSIO_API_KEY` | Server-side Composio key (packaged app fetches via Convex after sign-in) |
-
-Check:
-
-```bash
-npx convex env list --prod --names-only
-```
-
-If empty or incomplete, set from known-good **production** values (never commit
-secrets; prefer live Clerk issuer for real prod, not `*.clerk.accounts.dev`
-unless intentionally shipping test auth):
-
-```bash
-npx convex env set --prod CLERK_JWT_ISSUER_DOMAIN 'https://YOUR_CLERK_ISSUER'
-npx convex env set --prod COMPOSIO_API_KEY 'ak_…'
-npx convex env list --prod --names-only
-```
-
-Copy values from the Convex dashboard or from a secure vault — do **not** dump
-secret values into chat or git.
+| Convex deployment | **dev** `artful-marten-116` (`https://artful-marten-116.convex.cloud`) |
+| Cursor skills | `.cursor/skills/**` on **`main`** (repo-local agent skills) |
+| GitHub | `hanspreinfalk/Jarbas` — branch **`main`** |
+| Linear team | Jarbas (`JAR`) — id `d9d01d53-e315-4810-b0ad-5f0e6139b35e` |
 
 ## Workflow
 
-Track progress:
-
 ```
-- [ ] 1. Preflight (repo + confirm prod intent)
-- [ ] 2. Verify / set prod Convex env vars
-- [ ] 3. Dry-run then deploy Convex to prod
-- [ ] 4. Linear hygiene (Jarbas team)
-- [ ] 5. Report what shipped + what Linear still needs
+- [ ] 1. Preflight (repo on main, note dirty skills vs other files)
+- [ ] 2. `npx convex dev --once` → artful-marten-116
+- [ ] 3. Commit + include Cursor skills (`.cursor/skills/`)
+- [ ] 4. Push `main` to GitHub (`origin`)
+- [ ] 5. Linear hygiene (Launch / deploy-related issues)
+- [ ] 6. Report results
 ```
 
 ### 1. Preflight
@@ -73,57 +57,85 @@ From repo root `Documents/tauri/jarbas`:
 
 ```bash
 git status
+git branch --show-current
 git log -1 --oneline
-npx convex deployments   # expect configured project jarbas; note prod name
+npx convex deployments   # expect jarbas → artful-marten-116 (dev)
 ```
 
-- Prefer a clean `main` with the commit you intend already pushed.
-- Confirm the user wants **production** (not preview / not wipe-dev).
-- Refuse if they asked to wipe data — that is
-  [wipe-convex-clerk-dev](../wipe-convex-clerk-dev/SKILL.md) and is **dev only**.
+- Prefer working on **`main`**. If on another branch, ask before merging/pushing to main.
+- **Cursor skills are in scope:** any dirty/untracked files under `.cursor/skills/`
+  must be committed and pushed as part of this workflow (see step 3). That is
+  part of “push to prod,” not optional.
+- For **other** uncommitted files (app code, docs, etc.), ask before committing —
+  do not invent commits outside `.cursor/skills/` unless the user already asked.
+- Refuse wipe / delete-data requests here — that is
+  [wipe-convex-clerk-dev](../wipe-convex-clerk-dev/SKILL.md) (dev only).
 
-### 2. Prod env vars
+### 2. Convex dev
 
-Run `npx convex env list --prod --names-only`. If `CLERK_JWT_ISSUER_DOMAIN` or
-`COMPOSIO_API_KEY` is missing, stop and set them (see table above) before
-deploying functions that depend on auth/Composio.
-
-Related Linear issue to keep in mind: **JAR-19** — “Update to production
-variables” (Launch / Billing & Launch). Do not mark it Done until prod env is
-actually correct for the intended Clerk mode (test vs live).
-
-### 3. Deploy Convex
-
-Preview:
+One-shot (agent runs):
 
 ```bash
-npx convex deploy --dry-run
+npx convex dev --once
 ```
 
-Ship:
+Long-running watch is **not** required for this skill (that’s for local
+`tauri` / `npm run convex:dev` sessions).
+
+Expect: functions ready on `artful-marten-116`.
+
+Do **not** run `npx convex deploy` / `npm run convex:deploy` as part of this
+skill unless the user later explicitly asks to cut over to Convex production
+(`standing-puffin-912`).
+
+### 3. Commit Cursor skills
+
+Skills live in the repo so “prod” agents and teammates get the same workflows.
+On every push-to-prod run:
 
 ```bash
-npm run convex:deploy
-# same as: npx convex deploy
+git status -- .cursor/skills
+git add .cursor/skills/
 ```
 
-If the CLI asks for confirmation that you are pushing to production, confirm
-only after the dry-run looked right. Attach an audit message when useful:
+If there is anything staged under `.cursor/skills/`:
+
+1. Draft a short commit message focused on why (skill add/update).
+2. Commit **only** those paths (do not sneak in unrelated files).
+3. Follow the repo git commit protocol (HEREDOC message; no `--no-verify`;
+   never commit secrets).
+
+Example:
 
 ```bash
-npx convex deploy --message "prod: <short why>"
+git commit -m "$(cat <<'EOF'
+Update Cursor push-to-prod skill to ship skills with main.
+
+EOF
+)"
 ```
 
-Verify afterward (optional):
+If `.cursor/skills/` is clean, say so and continue. Do **not** create an empty
+commit.
+
+Still never commit `.env.local`, deploy keys, or Clerk/Composio secrets.
+
+### 4. Push `main` to GitHub
 
 ```bash
-npx convex function-spec --deployment prod | head
+git status
+git push -u origin main
 ```
 
-### 4. Linear hygiene (required)
+- Only push **`main`** to `origin` (`https://github.com/hanspreinfalk/Jarbas`).
+- If there is nothing to push (already up to date), say so and continue.
+- Do **not** force-push. Do **not** push other branches unless the user asks.
+- After a skills commit in step 3, this push **must** include that commit.
 
-After (or while) deploying, check the **Jarbas** team via Composio Linear tools
-(preferred) or `LINEAR_*` MCP:
+### 5. Linear hygiene (required)
+
+Check the **Jarbas** team via Composio Linear tools (preferred) or `LINEAR_*`
+MCP:
 
 | Field | Value |
 |---|---|
@@ -132,47 +144,45 @@ After (or while) deploying, check the **Jarbas** team via Composio Linear tools
 | Team key | `JAR` |
 
 1. `LINEAR_LIST_ISSUES_BY_TEAM_ID` with `team_id` above (`first` ≤ 100; paginate).
-2. Focus on open issues that a prod push may close or unblock:
+2. Focus on open issues this ship may close or unblock:
    - Label **Launch** (especially **JAR-19** production variables, **JAR-20** live
      Clerk billing, **JAR-21** download landing page)
-   - Anything titled around deploy / prod / env / release
+   - Titles around deploy / prod / env / release / Convex / GitHub
 3. Summarize for the user: Done candidates vs still-blocked.
 4. **Only after explicit user confirmation**, move issues with
-   `LINEAR_UPDATE_ISSUE` (`issueId` + `stateId`). Done state id for this team:
-   `1e670402-29df-43d4-9a38-98cea7c742d3` (name `Done`). Todo:
+   `LINEAR_UPDATE_ISSUE` (`issueId` + `stateId`). Done:
+   `1e670402-29df-43d4-9a38-98cea7c742d3`. Todo:
    `ed3e3989-69ee-4d1e-ad5a-e7c521969d26`. In Progress:
    `aa4b120c-adbb-421f-8683-50b632e282e8`.
-5. Optional: `LINEAR_CREATE_LINEAR_COMMENT` noting deploy time + Convex prod
-   deployment name (`standing-puffin-912`) — no secrets in comments.
+5. Optional: `LINEAR_CREATE_LINEAR_COMMENT` noting ship time + Convex dev
+   (`artful-marten-116`) + git SHA on `main` — no secrets.
 
-Do **not** bulk-close Launch issues just because Convex functions were pushed.
-JAR-19 stays open until production variables are verified. Desktop distribution
-still needs [jarbas-build-releases](../jarbas-build-releases/SKILL.md) when
-binaries must hit Drive.
+Do **not** bulk-close Launch issues just because Convex dev + GitHub were
+updated. JAR-19 stays open until real Convex **production** env vars are
+verified.
 
-### 5. Report
+### 6. Report
 
 End reply with:
 
-1. Prod deployment name + whether env var names were present
-2. Deploy result (ok / failed) and git SHA used
-3. Linear: issues updated (if any) + remaining Launch/Todo blockers worth knowing
+1. Convex dev result (`artful-marten-116`, ok / failed)
+2. Cursor skills: committed paths (or clean) + whether they landed on `main`
+3. GitHub: whether `main` was pushed (or already up to date) + SHA
+4. Linear: issues updated (if any) + remaining Launch/Todo blockers
 
 ## Packaged desktop caveat
 
-`VITE_CONVEX_URL` / `VITE_CLERK_PUBLISHABLE_KEY` are **build-time** (see
-`src/components/ConvexClientProvider.tsx`). Pushing Convex to prod does **not**
-retarget already-shipped DMG/exe builds. To point friends’ downloads at prod:
-
-1. Build with prod Vite env (prod Convex URL + intended Clerk publishable key)
-2. Then run [jarbas-build-releases](../jarbas-build-releases/SKILL.md)
-
-Keep that distinction explicit in the report.
+`VITE_CONVEX_URL` / `VITE_CLERK_PUBLISHABLE_KEY` are **build-time**. This skill
+does **not** rebuild DMG/exe. For Drive downloads use
+[jarbas-build-releases](../jarbas-build-releases/SKILL.md).
 
 ## Hard rules
 
-- Never wipe prod data. Never run wipe-dev scripts against `standing-puffin-912`.
+- Trigger only on “push to prod” phrasing — **not** on bare `npx convex dev`.
+- Internally use **`npx convex dev`**, not `npx convex deploy`.
+- Always ship dirty **`.cursor/skills/`** with the push (commit + push to `main`).
+- Push **`main`** only; no force-push.
+- Never wipe prod or.dev data from this skill.
 - Never commit `.env.local`, deploy keys, or Clerk/Composio secrets.
 - Never mark Linear Done without user confirmation.
-- Do not invent a new Convex project; always `hans-preinfalk` / `jarbas`.
-- `convex deploy` → prod; `convex dev` → personal dev. Do not swap them.
+- Always `hans-preinfalk` / `jarbas` for Convex; `hanspreinfalk/Jarbas` for GitHub.
