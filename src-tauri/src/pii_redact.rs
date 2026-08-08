@@ -880,10 +880,12 @@ fn remove_pii(text: &str) -> String {
     remove_pii_with_counts(text, &all_categories_set()).0
 }
 
+#[cfg(test)]
 fn all_categories_set() -> HashSet<String> {
     all_category_tags().into_iter().collect()
 }
 
+#[cfg(test)]
 fn secrets_categories_set() -> HashSet<String> {
     default_enabled_categories().into_iter().collect()
 }
