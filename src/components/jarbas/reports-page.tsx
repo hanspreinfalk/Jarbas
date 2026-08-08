@@ -9,7 +9,6 @@ import {
   LoaderCircle,
   Sparkles,
 } from "lucide-react";
-import Markdown from "react-markdown";
 import {
   Area,
   AreaChart,
@@ -34,6 +33,7 @@ import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
 import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
 import { ReportDraftEditors } from "@/components/jarbas/report-draft-editors";
 import { PeriodBadge } from "@/components/jarbas/period-badge";
+import { ReportMarkdown } from "@/components/jarbas/report-markdown";
 import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
@@ -91,75 +91,6 @@ function scrollToReportSection(id: string) {
   const target = document.getElementById(id);
   if (!target) return;
   target.scrollIntoView({ behavior: "smooth", block: "start" });
-}
-
-function ReportMarkdown({ content }: { content: string }) {
-  return (
-    <div className="text-sm leading-relaxed text-foreground/90 sm:text-[15px]">
-      <Markdown
-        components={{
-          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
-          ul: ({ children }) => (
-            <ul className="mb-3 list-disc space-y-1.5 pl-5 last:mb-0">
-              {children}
-            </ul>
-          ),
-          ol: ({ children }) => (
-            <ol className="mb-3 list-decimal space-y-1.5 pl-5 last:mb-0">
-              {children}
-            </ol>
-          ),
-          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
-          strong: ({ children }) => (
-            <strong className="font-semibold text-foreground">{children}</strong>
-          ),
-          em: ({ children }) => <em className="italic">{children}</em>,
-          h1: ({ children }) => (
-            <h3 className="mb-2 mt-4 font-display text-lg tracking-tight text-foreground first:mt-0">
-              {children}
-            </h3>
-          ),
-          h2: ({ children }) => (
-            <h3 className="mb-2 mt-4 font-display text-base tracking-tight text-foreground first:mt-0">
-              {children}
-            </h3>
-          ),
-          h3: ({ children }) => (
-            <h4 className="mb-1.5 mt-3 text-sm font-semibold text-foreground first:mt-0">
-              {children}
-            </h4>
-          ),
-          code: ({ className, children }) => {
-            const isBlock = Boolean(className?.includes("language-"));
-            if (isBlock) {
-              return (
-                <code className="font-mono text-[12px] text-foreground">
-                  {children}
-                </code>
-              );
-            }
-            return (
-              <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[12px] text-foreground">
-                {children}
-              </code>
-            );
-          },
-          pre: ({ children }) => (
-            <pre className="mb-3 overflow-x-auto border border-border bg-muted/50 p-3 last:mb-0">
-              {children}
-            </pre>
-          ),
-          blockquote: ({ children }) => (
-            <blockquote className="mb-3 border-l-2 border-primary/40 pl-3 text-muted-foreground last:mb-0">
-              {children}
-            </blockquote>
-          ),
-        }}
-      >
-        {content}
-      </Markdown>
-    </div>
-  );
 }
 
 function ReportIndex() {
@@ -455,7 +386,10 @@ function ReportDetail({
       {/* 01 Summary */}
       <Section step="01" title="Explanation" id="report-section-01">
           <>
-            <ReportMarkdown content={report.executiveBrief} />
+            <ReportMarkdown
+              key={`${report.id}-brief`}
+              content={String(report.executiveBrief ?? "")}
+            />
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="border border-border bg-card px-3 py-3">
                 <p className="label-caps text-muted-foreground">Key insight</p>

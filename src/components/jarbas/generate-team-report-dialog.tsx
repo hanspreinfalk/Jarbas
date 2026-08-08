@@ -172,8 +172,8 @@ export function GenerateTeamReportDialog({
           </DialogTitle>
           <DialogDescription>
             {submitting
-              ? "Staging selected reports for the model to read."
-              : "Pick a timeframe and people. Jarbas synthesizes their reports into one team report."}
+              ? "Staging selected reports for a deep board-ready synthesis."
+              : "Pick a timeframe and people. Jarbas synthesizes their reports into one."}
           </DialogDescription>
         </DialogHeader>
 
@@ -312,7 +312,7 @@ export function GenerateTeamReportDialog({
               </ul>
               <p className="mt-2 text-xs text-muted-foreground">
                 {selectedCount} selected · AI reads each person’s report in range,
-                then writes one team report.
+                then writes one board-ready team deliverable.
               </p>
             </div>
 

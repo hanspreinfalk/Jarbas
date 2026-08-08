@@ -21,6 +21,17 @@ import {
 } from "@/lib/analysis";
 import { playAnalysisCompleteSound } from "@/lib/analysis-sounds";
 
+function analysisKindsMatch(
+  left: AnalysisKind | string | null | undefined,
+  right: AnalysisKind | string | null | undefined,
+): boolean {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const normalize = (value: string) =>
+    value === "teamReports" ? "team-reports" : value;
+  return normalize(left) === normalize(right);
+}
+
 type AnalysisRunContextValue = {
   meta: AnalysisRunMeta | null;
   transcript: AnalysisTranscript | null;
@@ -108,7 +119,10 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
       if (cancelled) return;
 
       if (event.type === "started") {
-        if (event.jobId !== jobIdRef.current && event.kind !== kindRef.current) {
+        if (
+          event.jobId !== jobIdRef.current &&
+          !analysisKindsMatch(event.kind, kindRef.current)
+        ) {
           return;
         }
         jobIdRef.current = event.jobId;
@@ -188,7 +202,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
       }
 
       if (event.type === "completed") {
-        if (event.kind !== kindRef.current) return;
+        if (!analysisKindsMatch(event.kind, kindRef.current)) return;
         if (event.jobId !== jobIdRef.current) return;
         const items = event.items ?? null;
         pendingCompletedRef.current = { ids: event.ids, items };
@@ -260,8 +274,16 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
       try {
         const status = await getAnalysisStatus();
         if (cancelled) return;
-        if (status.running) return;
 
+        // Still actively running our job — wait.
+        if (
+          status.running &&
+          status.jobId === meta.jobId
+        ) {
+          return;
+        }
+
+        // Backend idle (or a different job) while UI still thinks this run is live.
         const recovered = await recoverFinishedAnalysis(meta.jobId);
         if (cancelled) return;
 
@@ -292,6 +314,9 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
           return;
         }
 
+        // Only error out once the backend is no longer running this job.
+        if (status.running) return;
+
         const message =
           "recovered" in recovered && recovered.error
             ? recovered.error
@@ -312,7 +337,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
 
     const timer = window.setInterval(() => {
       void reconcile();
-    }, 4000);
+    }, 1500);
     void reconcile();
 
     return () => {

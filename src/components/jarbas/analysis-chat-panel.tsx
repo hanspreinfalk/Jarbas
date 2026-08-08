@@ -266,6 +266,16 @@ function formatDuration(ms: number) {
   return `${minutes}m ${seconds.toString().padStart(2, "0")}s`;
 }
 
+/** Completion acks from the agent (e.g. "DONE") are not useful progress copy. */
+function visibleAssistantContent(content: string | undefined, live: boolean) {
+  const trimmed = (content ?? "").trim();
+  if (!trimmed) return "";
+  // Live runs use the Progress panel; raw agent chat is noise / confusing.
+  if (live) return "";
+  if (/^done\.?$/i.test(trimmed)) return "";
+  return trimmed;
+}
+
 export function AnalysisChatPanel({
   transcript,
   live = false,
@@ -306,9 +316,10 @@ export function AnalysisChatPanel({
   const finishedAt = transcript.finishedAt ?? now;
   const durationLabel = formatDuration(finishedAt - startedAt);
   const tools = transcript.tools ?? [];
+  const assistantContent = visibleAssistantContent(transcript.content, live);
   const hasBody =
     Boolean(transcript.thinking?.trim()) ||
-    Boolean(transcript.content?.trim()) ||
+    Boolean(assistantContent) ||
     tools.length > 0;
 
   const { headline, phases } = buildFriendlyProgress({
@@ -393,9 +404,9 @@ export function AnalysisChatPanel({
           </details>
         ) : null}
 
-        {transcript.content?.trim() ? (
+        {assistantContent ? (
           <div className="mt-4">
-            <AssistantMarkdown content={transcript.content} />
+            <AssistantMarkdown content={assistantContent} />
           </div>
         ) : null}
 

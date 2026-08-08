@@ -270,6 +270,14 @@ export const create = mutation({
     void _drop;
     if (scope === "team") {
       rest.scope = "team";
+      // Team reports must keep the analysis transcript in Convex (payload.analysis),
+      // same as personal reports — used by the "Analysis run" tab.
+      if (!rest.analysis || typeof rest.analysis !== "object") {
+        console.warn(
+          "[reports.create] team report saved without analysis transcript",
+          title,
+        );
+      }
     }
 
     const generationDurationMs = resolveGenerationDurationMs(rest);

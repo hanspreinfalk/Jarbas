@@ -43,7 +43,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
-import { startAnalysis } from "@/lib/analysis";
+import { recoverFinishedAnalysis, startAnalysis } from "@/lib/analysis";
 import { formatGeneratedAt } from "@/lib/date-range";
 import { reportOverlapsDateRange } from "@/lib/report-range";
 import { normalizeWorkReport, type WorkReport } from "@/lib/reports";
@@ -341,11 +341,40 @@ export function MultiTeamAnalysisPage() {
                   "Analysis finished but no team report payload was returned.",
                 );
               }
+              const base = payload as Record<string, unknown>;
+              // Analysis transcript must land in Convex with the team report
+              // (same shape as personal reports: payload.analysis).
+              let analysis = base.analysis;
+              if (!analysis || typeof analysis !== "object") {
+                const jobId =
+                  meta?.jobId ||
+                  (typeof base.jobId === "string" ? base.jobId : "");
+                if (jobId) {
+                  const recovered = await recoverFinishedAnalysis(jobId);
+                  if (
+                    "recovered" in recovered &&
+                    recovered.recovered &&
+                    Array.isArray(recovered.items) &&
+                    recovered.items[0] &&
+                    typeof recovered.items[0] === "object" &&
+                    (recovered.items[0] as Record<string, unknown>).analysis
+                  ) {
+                    analysis = (recovered.items[0] as Record<string, unknown>)
+                      .analysis;
+                  }
+                }
+              }
+              if (!analysis || typeof analysis !== "object") {
+                throw new Error(
+                  "Team report finished but the analysis run was missing. Try generating again.",
+                );
+              }
               const saved = await createReport({
                 organizationId: orgId,
                 scope: "team",
                 payload: {
-                  ...(payload as Record<string, unknown>),
+                  ...base,
+                  analysis,
                   scope: "team",
                   selectedClerkUserIds: pendingMemberIds,
                 },

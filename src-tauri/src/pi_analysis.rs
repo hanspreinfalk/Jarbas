@@ -24,6 +24,9 @@ pub enum AnalysisKind {
     Insights,
     Opportunities,
     Reports,
+    /// Keep wire format as "team-reports" (matches frontend AnalysisKind).
+    /// Default camelCase would emit "teamReports" and the UI would drop completed events.
+    #[serde(rename = "team-reports", alias = "teamReports")]
     TeamReports,
 }
 
@@ -334,7 +337,7 @@ fn build_analysis_blob(job: &ActiveJob) -> Value {
                 "id": tool.id,
                 "name": tool.name,
                 "label": tool.label,
-                "args": tool.args,
+                "args": slim_tool_args_for_storage(&tool.name, &tool.args),
                 "status": tool.status,
                 "result": tool.result,
             })
@@ -354,6 +357,31 @@ fn build_analysis_blob(job: &ActiveJob) -> Value {
         "finishedAt": finished_at_ms,
         "durationMs": duration_ms,
     })
+}
+
+/// Keep tool transcripts cloud-friendly: omit giant write bodies (the report
+/// itself is stored separately on the report payload).
+fn slim_tool_args_for_storage(name: &str, args: &Value) -> Value {
+    let lower = name.to_ascii_lowercase();
+    let is_write = lower == "write"
+        || lower.ends_with("__write")
+        || lower.contains("write_file");
+    let Some(obj) = args.as_object() else {
+        return args.clone();
+    };
+    let mut next = obj.clone();
+    if let Some(content) = next.get("content").and_then(|v| v.as_str()) {
+        if is_write || content.len() > 4_000 {
+            next.insert(
+                "content".into(),
+                Value::String(format!(
+                    "[omitted {} chars — full output saved on the report]",
+                    content.len()
+                )),
+            );
+        }
+    }
+    Value::Object(next)
 }
 
 fn save_analysis_run(job: &ActiveJob, analysis: &Value) -> Result<(), String> {
@@ -555,6 +583,7 @@ fn finish_job(app: &AppHandle, state: &AnalysisState) {
     );
 
     let payload = read_job_file(&job.id)
+        .or_else(|| payload_from_write_tools(&job.tools))
         .or_else(|| extract_json_value(&job.accumulated));
 
     let result = match payload {
@@ -567,7 +596,9 @@ fn finish_job(app: &AppHandle, state: &AnalysisState) {
 
     let _ = fs::remove_file(JarbasPaths::analysis_job_file(&job.id));
     cleanup_analysis_context(&job.id);
-    stop_process(state);
+
+    // Clear the active job and notify the UI before killing the agent. If
+    // stop_process hangs, the frontend must still be able to recover.
     {
         let mut guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
         *guard = None;
@@ -577,7 +608,7 @@ fn finish_job(app: &AppHandle, state: &AnalysisState) {
         Ok(PersistResult { ids, items }) => emit(
             app,
             AnalysisEvent::Completed {
-                job_id: job.id,
+                job_id: job.id.clone(),
                 kind: job.kind,
                 ids,
                 items,
@@ -586,11 +617,13 @@ fn finish_job(app: &AppHandle, state: &AnalysisState) {
         Err(message) => emit(
             app,
             AnalysisEvent::Error {
-                job_id: Some(job.id),
+                job_id: Some(job.id.clone()),
                 message,
             },
         ),
     }
+
+    stop_process(state);
 }
 
 fn handle_stdout_line(app: &AppHandle, state: &AnalysisState, line: &str) {
@@ -792,17 +825,46 @@ fn handle_stdout_line(app: &AppHandle, state: &AnalysisState, line: &str) {
             emit(
                 app,
                 AnalysisEvent::ToolEnd {
-                    job_id,
+                    job_id: job_id.clone(),
                     tool_call_id,
                     label,
-                    tool_name,
+                    tool_name: tool_name.clone(),
                     is_error,
-                    result,
+                    result: result.clone(),
                 },
             );
+
+            // Don't wait for agent_settled: once the job JSON is written, finish.
+            // Agents often idle or hang after write when told not to chat back.
+            if !is_error && write_tool_targets_job_file(&tool_name, &result) {
+                let should_finish = state
+                    .job
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner())
+                    .as_ref()
+                    .map(|job| !job.settled && job.id == job_id)
+                    .unwrap_or(false);
+                if should_finish {
+                    finish_job(app, state);
+                }
+            }
         }
         _ => {}
     }
+}
+
+fn write_tool_targets_job_file(tool_name: &str, result: &str) -> bool {
+    let name = tool_name.to_ascii_lowercase();
+    if !(name == "write"
+        || name.ends_with("__write")
+        || name.contains("write_file")
+        || name == "edit"
+        || name.contains("apply_patch"))
+    {
+        return false;
+    }
+    let lower = result.to_ascii_lowercase();
+    lower.contains(".analysis-job-") && lower.contains(".json")
 }
 
 fn stop_process(state: &AnalysisState) {
@@ -811,7 +873,10 @@ fn stop_process(state: &AnalysisState) {
         let _ = writeln!(proc.stdin, "{}", json!({"type":"abort"}));
         let _ = proc.stdin.flush();
         let _ = proc.child.kill();
-        let _ = proc.child.wait();
+        // Never block the analysis event thread on a hung wait().
+        thread::spawn(move || {
+            let _ = proc.child.wait();
+        });
     }
     state
         .pending
@@ -830,6 +895,8 @@ fn start_process(
     // When Some, rewrite shared prompt files for connector read-only rules.
     // None leaves files alone (e.g. TeamReports).
     connector_prompt_sync: Option<bool>,
+    // Team reports synthesize staged JSON only — never touch Composio MCP.
+    attach_composio: bool,
 ) -> Result<(), String> {
     let node = pi_agent::find_node(app).ok_or_else(|| {
         "Bundled Node runtime is missing. Run npm run fetch-node, then rebuild.".to_string()
@@ -846,18 +913,22 @@ fn start_process(
         .filter(|value| !value.is_empty())
         .map(str::to_string);
 
-    // Attach Composio Tool Router MCP so analysis can read connected apps.
-    match crate::composio::configure_composio_mcp_for_user(composio_user.as_deref()) {
-        Ok(Some(session_id)) => {
-            eprintln!("[analysis] composio tool router session {session_id}");
+    if attach_composio {
+        // Attach Composio Tool Router MCP so analysis can read connected apps.
+        match crate::composio::configure_composio_mcp_for_user(composio_user.as_deref()) {
+            Ok(Some(session_id)) => {
+                eprintln!("[analysis] composio tool router session {session_id}");
+            }
+            Ok(None) => {
+                eprintln!("[analysis] composio MCP not attached (missing user id or API key)");
+            }
+            Err(error) => {
+                eprintln!("[analysis] composio MCP setup failed: {error}");
+                // Continue with local capture only.
+            }
         }
-        Ok(None) => {
-            eprintln!("[analysis] composio MCP not attached (missing user id or API key)");
-        }
-        Err(error) => {
-            eprintln!("[analysis] composio MCP setup failed: {error}");
-            // Continue with local capture only.
-        }
+    } else {
+        eprintln!("[analysis] Composio skipped (team report uses staged member reports only)");
     }
 
     if let Some(has_connectors) = connector_prompt_sync {
@@ -900,14 +971,16 @@ fn start_process(
     }
 
     crate::load_env();
-    if let Ok(api_key) = std::env::var("COMPOSIO_API_KEY") {
-        if !api_key.trim().is_empty() {
-            command.env("COMPOSIO_API_KEY", api_key);
+    if attach_composio {
+        if let Ok(api_key) = std::env::var("COMPOSIO_API_KEY") {
+            if !api_key.trim().is_empty() {
+                command.env("COMPOSIO_API_KEY", api_key);
+            }
         }
-    }
-    if let Some(user_id) = composio_user.as_deref() {
-        command.env("COMPOSIO_TEST_USER_ID", user_id);
-        command.env("COMPOSIO_USER_ID", user_id);
+        if let Some(user_id) = composio_user.as_deref() {
+            command.env("COMPOSIO_TEST_USER_ID", user_id);
+            command.env("COMPOSIO_USER_ID", user_id);
+        }
     }
 
     let mut child = command
@@ -1247,7 +1320,10 @@ Write a JSON object to the job file with shape:
   }
 }
 TEAM report: synthesize ONLY from staged member report JSON files (see PART C). Include every member in memberSnapshots.
+- This is the flagship deliverable: board-ready, deeply attributed, decision-grade. Thin summaries fail.
 - "executiveBrief" MUST be GitHub-flavored markdown (short paragraphs, **bold**, ### headings, lists). No HTML. No em dashes.
+- Attribution is mandatory: never promote a one-person metric, risk, or tool issue into team KPIs, teamFindings, sharedPatterns, or the executive brief as if the whole team had it. Keep single-person facts inside that person's memberSnapshots (name them explicitly). Team-level claims require evidence from 2+ people or a clearly shared workflow.
+- Contrast people clearly. Fill every section with concrete numbers, owners, and unlocks from the source reports.
 "##,
     };
 
@@ -1343,7 +1419,7 @@ Output (required):
 1. Write the final JSON with the write tool to exactly this path:
    {job_path}
 2. {schema}
-3. After the file is written, reply with a single short line: DONE
+3. After the file is written, stop. Do not send any chat reply (no DONE, no summary).
 
 Do not ask clarifying questions. Start with Part A, then Part B, then write the file."#,
         time_zone = time_zone,
@@ -1371,7 +1447,9 @@ fn build_team_reports_prompt(
     format!(
         r#"[Context: User timezone is {time_zone}. Current local time is {local_time}. Never use emojis. Never use em dashes. This is a background analysis job - do not chat with the user; only read the member reports thoroughly and write the JSON file.]
 
-Task: Produce a MULTI-PERSON TEAM REPORT for {period} (local calendar dates {start_date} through {end_date} inclusive).
+Task: Produce a BOARD-READY MULTI-PERSON TEAM REPORT for {period} (local calendar dates {start_date} through {end_date} inclusive).
+
+This is the flagship deliverable of the product. Write it as if a top-tier management consultancy prepared it for a multi-million-dollar engagement: precise, attributed, decision-grade, and impossible to skim past. Thin bullet stew is a failure. Generic "the team should communicate better" is a failure.
 
 === SOURCE MATERIAL (required) ===
 Member work reports are staged as JSON files here:
@@ -1381,11 +1459,26 @@ Also read:
   {context_path}/index.json
 
 Rules for sources:
-- Read EVERY member-*.json file. Do not skip people or duplicate reports for the same person.
-- Use only facts present in those reports. Do not invent apps, people, meetings, or metrics.
+- Read EVERY member-*.json file before writing. Extract concrete numbers, apps, times, people, and unlocks from each.
+- Use only facts present in those reports. Do not invent apps, people, meetings, metrics, or dollar figures.
 - You are synthesizing across people - this is NOT a personal capture analysis. Do NOT query ~/.jarbas/db.sqlite or Composio for this job.
 - When the same person has multiple reports, merge their signal into one memberSnapshots entry (keep person once).
-- When people conflict or diverge, say so clearly in teamFindings / sharedPatterns.
+- When people conflict or diverge, say so clearly (who differs, on what, and why it matters).
+
+Workflow (critical - do not stall):
+1. Read {context_path}/index.json once.
+2. For each member-*.json: prefer ONE targeted jq (or read) that pulls the fields you need (person, role, headline, keyInsight, deliveryUnlock, impactOnce, kpis, findings/teamFindings, opportunities/teamOpportunities, bottlenecks, scorecard, nextSteps, executiveBrief head). Do NOT run long python scripts. Do NOT re-read the same file repeatedly.
+3. As soon as you have enough signal from every member, WRITE the full team report JSON to {job_path} with the write tool.
+4. Stop immediately after the write. No chat reply.
+- Cap exploration: after ~8 tool calls you should be writing. Depth belongs in the written report, not in more shell loops.
+
+Attribution rules (critical - do not generalize individuals into "the team"):
+- A fact that appears for only ONE person must stay attributed to that person. Put it in their memberSnapshots (risks/strengths/headline). Do NOT put it in kpis, teamFindings, sharedPatterns, crossTeamBottlenecks, scorecard, or the executiveBrief as a team-wide claim.
+- Examples of one-person facts that must NOT become team KPIs: one person's Chrome memory pressure, one person's unread WhatsApp count, one person's late-night coding session, one person's local build warning.
+- Team KPIs and teamFindings require either (a) the same signal in 2+ member reports, or (b) a metric that is explicitly org/team-scoped in a source report (e.g. a shared dashboard covering a whole claims team). If unsure, attribute to the named person.
+- sharedPatterns.members must list every person who actually showed the pattern. Never imply "the team" when only one name qualifies.
+- executiveBrief may highlight an individual's standout result, but must name them (e.g. "**Eduardo Schuch** processed 30+ LinkedIn profiles in 35 minutes") rather than saying the team did.
+- Prefer sharp contrast: what Hans uniquely drove vs what Eduardo uniquely drove vs what is truly shared.
 
 === OUTPUT SCHEMA ===
 Write a JSON object to the job file with shape:
@@ -1429,26 +1522,83 @@ Write a JSON object to the job file with shape:
   }}
 }}
 
-This is a TEAM package, not a single-person report:
-1) Executive synthesis across the group
-2) One snapshot per selected member (strengths, risks, top unlock)
-3) Shared patterns that appear across multiple people
-4) Cross-team bottlenecks and team-level opportunities with owners
-5) Concrete next steps the org can take
+=== QUALITY BAR (non-negotiable) ===
+This must feel like a finished partner deliverable, not a draft:
+
+1) Title / subtitle / headline
+- Title: serious, specific, board-room ready (no "Team Report Stub").
+- Subtitle: one line on the strategic tension or opportunity of the period.
+- Headline: one crisp sentence a CEO can quote.
+
+2) executiveBrief (markdown, long-form, scannable)
+- 4-8 short paragraphs OR ### sections covering: (a) what the period was about as a leadership system, (b) each person's distinct contribution named, (c) what is truly shared across people, (d) the single highest-leverage unlock with owners.
+- Use **bold** for people, numbers, and apps. Use bullet lists for milestones. No HTML. No em dashes.
+- Must be insightful: connect how they work to what becomes possible next. Do not restate each personal report chronologically.
+
+3) keyInsight / deliveryUnlock / impactOnce
+- keyInsight: the non-obvious diagnosis (not a summary of activities).
+- deliveryUnlock: the concrete move that changes the system (automation, process, ownership).
+- impactOnce: quantified or clearly scoped outcome if that unlock ships (hours, dollars, cycle time, risk) using only source numbers or conservative synthesis of source numbers.
+
+4) kpis (3-6)
+- Only shared or org-scoped metrics. Each delta should explain scope (e.g. "Claims Team North · from Hans's audit").
+- Prefer recovery, velocity, quality, or coordination metrics grounded in the member reports.
+- Never pad with vanity one-person machine stats.
+
+5) memberSnapshots (one per person, mandatory)
+- headline: that person's unique arc for the period (not a copy of the team headline).
+- strengths: 2-4 specific strengths with evidence language (apps, counts, times).
+- risks: 1-3 real risks for THAT person only.
+- topOpportunity: their single best unlock, named and actionable.
+
+6) teamFindings (4-7)
+- Each finding is a synthesis judgment with named people and numbers from sources.
+- Separate shared systemic issues from individual friction.
+- Detail should be 2-4 sentences: observation → implication → why it matters now.
+
+7) sharedPatterns (2-5)
+- Only patterns with 2+ members listed.
+- Detail must show how the pattern appeared for each listed person (not one vague sentence).
+
+8) crossTeamBottlenecks (2-5)
+- cost: honest, attributed (who/what the cost attaches to).
+- unlock: concrete intervention.
+- owners: real names from the reports.
+
+9) teamOpportunities (3-6)
+- Rank by leverage. impact/effort 1-10. horizon in days/weeks.
+- fromPattern must cite a real shared pattern or named cross-person finding.
+- owners must be specific people who can drive it.
+
+10) nextSteps (5-8)
+- Sequence matters: what to do this week vs this month.
+- Every step has a human owner and a when.
+- Prefer shippable actions (instrument, automate, decide, staff) over "discuss".
+
+11) scorecard (4-6)
+- Scores 0-100 with a one-line note citing evidence.
+- Dimensions like coordination quality, unlock readiness, focus protection, handoff cost, GTM/ops balance - only if grounded.
+
+=== PACKAGE STRUCTURE ===
+1) Executive synthesis (headline + brief + keyInsight/unlock)
+2) People in scope (memberSnapshots for everyone)
+3) Shared truth (findings + patterns)
+4) Friction and unlocks (bottlenecks + opportunities)
+5) Operating cadence (kpis + scorecard + nextSteps)
 
 Rules:
-- Include a memberSnapshots entry for every member report you read.
-- "executiveBrief" MUST be GitHub-flavored markdown (short paragraphs, **bold**, ### headings, lists). No HTML. No em dashes.
-- Prefer positive unlock framing. Avoid waste/leakage language.
-- Fill every section. Prefer depth over thin summaries.
-- Title/subtitle should read like a serious team cycle report.
+- Include a memberSnapshots entry for every member report you read. Title-case person names.
+- Fill EVERY section deeply. Prefer fewer brilliant items over many shallow ones - but never leave a section empty if the sources support content.
+- Prefer positive unlock framing. Avoid waste/leakage language and consultant cliches ("synergy", "leverage stakeholders", "move the needle") unless tied to a concrete action.
+- Follow attribution rules above strictly.
+- Thoroughness goes into the JSON deliverable. Do not stall in shell/python exploration.
 
 Output (required):
 1. Write the final JSON with the write tool to exactly this path:
    {job_path}
-2. After the file is written, reply with a single short line: DONE
+2. After the file is written, stop. Do not send any chat reply (no DONE, no summary).
 
-Do not ask clarifying questions. Start by reading index.json and every member file, then write the team report."#,
+Do not ask clarifying questions. Read index + each member once (targeted), then write the team report."#,
         time_zone = time_zone,
         local_time = local_time,
         period = period,
@@ -1631,8 +1781,17 @@ pub fn update_analysis_item(kind: String, id: String, item: Value) -> Result<Val
 #[tauri::command]
 pub fn get_analysis_status(app: AppHandle) -> Result<Value, String> {
     let state = app.state::<AnalysisState>();
+    // If the agent process exited without emitting settle/error (crash, HMR kill),
+    // close the job so the UI can recover instead of spinning forever.
+    reap_dead_analysis_process(&app, &state);
+
     let job = state.job.lock().unwrap_or_else(|p| p.into_inner());
     Ok(match job.as_ref() {
+        // Settled but not yet cleared (e.g. stop_process still running) — UI must recover.
+        Some(job) if job.settled => json!({
+            "running": false,
+            "settledJobId": job.id,
+        }),
         Some(job) => json!({
             "running": true,
             "jobId": job.id,
@@ -1644,6 +1803,66 @@ pub fn get_analysis_status(app: AppHandle) -> Result<Value, String> {
         }),
         None => json!({ "running": false }),
     })
+}
+
+fn reap_dead_analysis_process(app: &AppHandle, state: &AnalysisState) {
+    let exited = {
+        let mut guard = state.process.lock().unwrap_or_else(|p| p.into_inner());
+        match guard.as_mut() {
+            Some(proc) => match proc.child.try_wait() {
+                Ok(Some(_)) => true,
+                Ok(None) => false,
+                Err(_) => true,
+            },
+            None => false,
+        }
+    };
+    if !exited {
+        return;
+    }
+
+    {
+        let mut guard = state.process.lock().unwrap_or_else(|p| p.into_inner());
+        *guard = None;
+    }
+
+    let unfinished = {
+        let guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
+        guard
+            .as_ref()
+            .filter(|job| !job.settled)
+            .map(|job| job.id.clone())
+    };
+    let Some(job_id) = unfinished else {
+        return;
+    };
+
+    // Prefer finishing if the job JSON (or write tool args) already exists.
+    let can_finish = {
+        let guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
+        guard
+            .as_ref()
+            .map(|job| {
+                read_job_file(&job.id).is_some()
+                    || payload_from_write_tools(&job.tools).is_some()
+                    || extract_json_value(&job.accumulated).is_some()
+            })
+            .unwrap_or(false)
+    };
+    if can_finish {
+        finish_job(app, state);
+        return;
+    }
+
+    emit(
+        app,
+        AnalysisEvent::Error {
+            job_id: Some(job_id),
+            message: "Analysis agent stopped unexpectedly.".into(),
+        },
+    );
+    let mut guard = state.job.lock().unwrap_or_else(|p| p.into_inner());
+    *guard = None;
 }
 
 #[tauri::command]
@@ -1756,16 +1975,21 @@ pub fn start_analysis(
         &env_keys,
         composio_user.as_deref(),
         connector_prompt_sync,
+        !skip_composio,
     )?;
 
     // Re-check after configure: session may have failed.
-    let composio_attached = composio_attached
-        && JarbasPaths::mcp_config()
-            .exists()
-            .then(|| fs::read_to_string(JarbasPaths::mcp_config()).ok())
-            .flatten()
-            .map(|raw| raw.contains("\"composio\""))
-            .unwrap_or(false);
+    let composio_attached = if skip_composio {
+        false
+    } else {
+        composio_attached
+            && JarbasPaths::mcp_config()
+                .exists()
+                .then(|| fs::read_to_string(JarbasPaths::mcp_config()).ok())
+                .flatten()
+                .map(|raw| raw.contains("\"composio\""))
+                .unwrap_or(false)
+    };
 
     {
         let mut guard = state.job.lock().unwrap_or_else(|p| p.into_inner());

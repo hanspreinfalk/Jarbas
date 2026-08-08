@@ -1,3 +1,4 @@
+import { type ReactNode } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -88,6 +89,7 @@ export function AnalysisItemToolbar({
   onCancelEdit,
   onSave,
   onDeleteRequest,
+  leading,
 }: {
   editing: boolean;
   saving?: boolean;
@@ -96,6 +98,8 @@ export function AnalysisItemToolbar({
   onCancelEdit: () => void;
   onSave: () => void;
   onDeleteRequest: () => void;
+  /** Optional control rendered immediately before Edit (e.g. Analysis run). */
+  leading?: ReactNode;
 }) {
   if (editing) {
     return (
@@ -125,6 +129,7 @@ export function AnalysisItemToolbar({
 
   return (
     <div className="flex flex-wrap items-center gap-2">
+      {leading}
       <Button
         type="button"
         variant="outline"

@@ -45,13 +45,15 @@ function classifyTool(tool: AnalysisToolCall): FriendlyPhaseId {
     return "apps";
   }
 
+  // Only real write/edit tools count as "writing". Paths ending in .json
+  // (jq/read of member reports) used to false-trigger this phase.
   if (
     base === "write" ||
     base === "write_file" ||
     base === "edit" ||
     base === "apply_patch" ||
     blob.includes("analysis/jobs") ||
-    blob.includes(".json")
+    blob.includes(".analysis-job-")
   ) {
     return "writing";
   }
@@ -76,10 +78,47 @@ function classifyTool(tool: AnalysisToolCall): FriendlyPhaseId {
   return "thinking";
 }
 
+/** Team reports never use Composio — do not treat github/slack mentions in member JSON as "apps". */
+function classifyTeamTool(tool: AnalysisToolCall): FriendlyPhaseId {
+  const base = toolBaseName(tool.name);
+  const blob = `${tool.label} ${argsText(tool.args)} ${tool.result}`.toLowerCase();
+
+  if (
+    base === "write" ||
+    base === "write_file" ||
+    base === "edit" ||
+    base === "apply_patch" ||
+    blob.includes(".analysis-job-")
+  ) {
+    return "writing";
+  }
+
+  if (
+    base === "read" ||
+    ((base === "bash" || base === "shell" || base === "run_terminal_cmd") &&
+      (blob.includes("analysis-context") ||
+        blob.includes("member-") ||
+        blob.includes("index.json")))
+  ) {
+    return "screen";
+  }
+
+  return "thinking";
+}
+
 const PHASE_ORDER: FriendlyPhaseId[] = [
   "starting",
   "screen",
   "apps",
+  "thinking",
+  "writing",
+  "finishing",
+];
+
+/** Team synthesis has no connected-apps step. */
+const TEAM_PHASE_ORDER: FriendlyPhaseId[] = [
+  "starting",
+  "screen",
   "thinking",
   "writing",
   "finishing",
@@ -168,12 +207,15 @@ export function buildFriendlyProgress(options: {
   kind?: AnalysisKind;
 }): { headline: string; phases: FriendlyPhase[] } {
   const { tools, status, live, stopping, kind } = options;
-  const labels = kind === "team-reports" ? TEAM_PHASE_LABEL : PHASE_LABEL;
+  const isTeam = kind === "team-reports";
+  const labels = isTeam ? TEAM_PHASE_LABEL : PHASE_LABEL;
+  const order = isTeam ? TEAM_PHASE_ORDER : PHASE_ORDER;
+  const classify = isTeam ? classifyTeamTool : classifyTool;
 
   if (stopping || /stopp/i.test(status ?? "")) {
     return {
       headline: labels.stopping,
-      phases: PHASE_ORDER.map((id) => ({
+      phases: order.map((id) => ({
         id,
         label: labels[id],
         done: false,
@@ -185,7 +227,7 @@ export function buildFriendlyProgress(options: {
   if (!live) {
     return {
       headline: "Finished",
-      phases: PHASE_ORDER.map((id) => ({
+      phases: order.map((id) => ({
         id,
         label: labels[id],
         done: true,
@@ -199,8 +241,8 @@ export function buildFriendlyProgress(options: {
   let activeIndex = 0;
 
   for (const tool of tools) {
-    const phase = classifyTool(tool);
-    const index = PHASE_ORDER.indexOf(phase);
+    const phase = classify(tool);
+    const index = order.indexOf(phase);
     if (index > activeIndex) activeIndex = index;
   }
 
@@ -208,11 +250,11 @@ export function buildFriendlyProgress(options: {
     activeIndex = 0;
   }
 
-  const active = PHASE_ORDER[activeIndex] ?? "starting";
+  const active = order[activeIndex] ?? "starting";
 
   return {
     headline: labels[active],
-    phases: PHASE_ORDER.map((id, index) => ({
+    phases: order.map((id, index) => ({
       id,
       label: labels[id],
       done: index < activeIndex,
