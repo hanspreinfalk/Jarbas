@@ -47,7 +47,7 @@ Desktop installer refresh is **out of scope** unless the user also asks — use
 - [ ] 2. `npx convex dev --once` → artful-marten-116
 - [ ] 3. Commit + include Cursor skills (`.cursor/skills/`)
 - [ ] 4. Push `main` to GitHub (`origin`)
-- [ ] 5. Linear hygiene (Launch / deploy-related issues)
+- [ ] 5. Linear hygiene (issues + project activity / milestones when warranted)
 - [ ] 6. Report results
 ```
 
@@ -132,10 +132,13 @@ git push -u origin main
 - Do **not** force-push. Do **not** push other branches unless the user asks.
 - After a skills commit in step 3, this push **must** include that commit.
 
-### 5. Linear hygiene (required)
+### 5. Linear hygiene (required — full surface, judgment-based)
 
-Check the **Jarbas** team via Composio Linear tools (preferred) or `LINEAR_*`
-MCP:
+Linear is the source of truth for **what shipped and what’s next**, not just
+ticket status. Use Composio Linear tools (preferred). Do **everything that is
+needed** for this ship — issues, project updates (“activity”), milestones,
+project metadata — and **nothing that isn’t**. Prefer one clear signal over
+noise.
 
 | Field | Value |
 |---|---|
@@ -143,23 +146,74 @@ MCP:
 | Team id | `d9d01d53-e315-4810-b0ad-5f0e6139b35e` |
 | Team key | `JAR` |
 
+Canonical Jarbas projects (resolve via `LINEAR_LIST_LINEAR_PROJECTS`; confirm
+`project_id` before writes):
+
+| Project | Typical when |
+|---|---|
+| Desktop & Distribution | DMG/exe/Drive, Tauri packaging |
+| Billing & Launch | Clerk billing, Launch label, go-live |
+| Connectors & Composio | connectors / Composio |
+| Onboarding & Auth | auth / onboarding |
+| Analysis & Reports / Redaction & Privacy / … | match the work just shipped |
+
+#### A. Issues
+
 1. `LINEAR_LIST_ISSUES_BY_TEAM_ID` with `team_id` above (`first` ≤ 100; paginate).
 2. Focus on open issues this ship may close or unblock:
    - Label **Launch** (especially **JAR-19** production variables, **JAR-20** live
      Clerk billing, **JAR-21** download landing page)
-   - Titles around deploy / prod / env / release / Convex / GitHub
+   - Titles around deploy / prod / env / release / Convex / GitHub / desktop
 3. Summarize for the user: Done candidates vs still-blocked.
 4. **Only after explicit user confirmation**, move issues with
    `LINEAR_UPDATE_ISSUE` (`issueId` + `stateId`). Done:
    `1e670402-29df-43d4-9a38-98cea7c742d3`. Todo:
    `ed3e3989-69ee-4d1e-ad5a-e7c521969d26`. In Progress:
    `aa4b120c-adbb-421f-8683-50b632e282e8`.
-5. Optional: `LINEAR_CREATE_LINEAR_COMMENT` noting ship time + Convex dev
-   (`artful-marten-116`) + git SHA on `main` — no secrets.
+5. Create or comment on issues **only** when work is missing a ticket or a
+   ship note belongs on an existing issue (`LINEAR_CREATE_LINEAR_ISSUE` /
+   `LINEAR_CREATE_LINEAR_COMMENT`). Skip boilerplate “pushed main” comments
+   unless they unblock someone.
 
 Do **not** bulk-close Launch issues just because Convex dev + GitHub were
 updated. JAR-19 stays open until real Convex **production** env vars are
 verified.
+
+#### B. Project updates (activity) — write when the ship matters
+
+Post a **project update** with `LINEAR_CREATE_PROJECT_UPDATE` when any of
+these are true:
+
+- Meaningful backend / skills / desktop progress landed on `main`
+- Friends or stakeholders would otherwise have no visibility
+- Health changed (on track / at risk / off track)
+- You just refreshed Drive installers or unblocked a Launch item
+
+Skip updates for no-ops (already up to date, empty ship, pure typo).
+
+Update body should be short markdown: what shipped, Convex target
+(`artful-marten-116`), git SHA, next step / blocker. Set `health` to
+`onTrack` | `atRisk` | `offTrack` when you have a real opinion; omit if unsure.
+Pick the **most relevant project** (often Desktop & Distribution or Billing &
+Launch) — do not spam every project.
+
+#### C. Milestones — only when they are real checkpoints
+
+Use `LINEAR_CREATE_PROJECT_MILESTONE` (or update via GraphQL /
+`LINEAR_RUN_QUERY_OR_MUTATION` if editing) when this ship creates or hits a
+**named checkpoint** others should see — e.g. “Friends Drive builds live”,
+“Convex prod cutover”, “Public download page”. Include `target_date`
+(YYYY-MM-DD) when known.
+
+Do **not** invent filler milestones every push. One meaningful milestone beats
+many empty ones.
+
+#### D. Project metadata (sparingly)
+
+`LINEAR_UPDATE_LINEAR_PROJECT` for short description / dates / status when the
+project summary is wrong or stale. Keep `description` ≤ 255 chars. Prefer a
+single canonical link (e.g. Drive) in the long Description body — avoid
+duplicating the same URL in the short summary.
 
 ### 6. Report
 
@@ -168,7 +222,8 @@ End reply with:
 1. Convex dev result (`artful-marten-116`, ok / failed)
 2. Cursor skills: committed paths (or clean) + whether they landed on `main`
 3. GitHub: whether `main` was pushed (or already up to date) + SHA
-4. Linear: issues updated (if any) + remaining Launch/Todo blockers
+4. Linear: issues touched, **project update(s)** posted, milestones created/
+   updated (or explicitly “none needed”), + remaining Launch/Todo blockers
 
 ## Packaged desktop caveat
 
@@ -185,4 +240,6 @@ does **not** rebuild DMG/exe. For Drive downloads use
 - Never wipe prod or.dev data from this skill.
 - Never commit `.env.local`, deploy keys, or Clerk/Composio secrets.
 - Never mark Linear Done without user confirmation.
+- Linear: use the full surface (issues, project updates, milestones, metadata)
+  when warranted; never spam empty updates or filler milestones.
 - Always `hans-preinfalk` / `jarbas` for Convex; `hanspreinfalk/Jarbas` for GitHub.
