@@ -439,6 +439,7 @@ export function ConnectorsPage() {
     0,
   );
   const controlsBusy = actionBusy || connectingToolkit !== null;
+  const connectingSlug = connectingToolkit?.slug ?? null;
 
   return (
     <div className="animate-rise mx-auto w-full max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
@@ -538,7 +539,7 @@ export function ConnectorsPage() {
                     onClick={() => void startConnect(connection.toolkit)}
                     title="Add account"
                   >
-                    {connectingToolkit?.slug === connection.toolkit.slug ? (
+                    {connectingSlug === connection.toolkit.slug ? (
                       <Loader2 className="size-3.5 animate-spin" />
                     ) : (
                       <Plus className="size-3.5" />
@@ -642,16 +643,16 @@ export function ConnectorsPage() {
                             disabled={
                               controlsBusy ||
                               toolkit.no_auth ||
-                              connectingToolkit?.slug === toolkit.slug
+                              connectingSlug === toolkit.slug
                             }
                             onClick={() => void startConnect(toolkit)}
                           >
-                            {connectingToolkit?.slug === toolkit.slug ? (
+                            {connectingSlug === toolkit.slug ? (
                               <Loader2 className="size-3.5 animate-spin" />
                             ) : (
                               <ExternalLink className="size-3.5" />
                             )}
-                            {connectingToolkit?.slug === toolkit.slug
+                            {connectingSlug === toolkit.slug
                               ? "Preparing…"
                               : isPending
                                 ? "Resume connect"
