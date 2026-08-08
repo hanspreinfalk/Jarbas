@@ -188,6 +188,7 @@ fn create_main_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>
     WebviewWindowBuilder::new(app, "main", WebviewUrl::External(app_origin.parse()?))
         .title("Deployment Company of San Francisco")
         .inner_size(1180.0, 780.0)
+        .min_inner_size(920.0, 640.0)
         .on_navigation(move |nav_url| {
             if !is_clerk_account_portal_dead_end(&nav_url) {
                 return true;

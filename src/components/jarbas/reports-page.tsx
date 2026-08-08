@@ -626,14 +626,17 @@ function ReportDetail({
                   key={`${item.name}-${i}`}
                   className="border border-border px-3 py-3 sm:px-4"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <p className="text-sm font-semibold text-foreground">
+                  <div
+                    data-export-stack
+                    className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between"
+                  >
+                    <p className="min-w-0 flex-1 text-sm font-semibold text-foreground">
                       <span className="text-muted-foreground">
                         {String(i + 1).padStart(2, "0")}.{" "}
                       </span>
                       {item.name}
                     </p>
-                    <span className="label-caps border border-border bg-muted px-2 py-1 text-[10px] text-muted-foreground">
+                    <span className="label-caps w-fit shrink-0 border border-border bg-muted px-2 py-1 text-[10px] text-muted-foreground">
                       {item.horizon}
                     </span>
                   </div>

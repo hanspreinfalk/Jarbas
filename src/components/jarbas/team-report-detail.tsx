@@ -866,12 +866,15 @@ export function TeamReportDetail({
                     data-pdf-block
                     className="border border-border bg-card"
                   >
-                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
-                      <div className="flex min-w-0 flex-1 gap-3">
+                    <div
+                      data-export-stack
+                      className="flex flex-col gap-3 border-b border-border px-4 py-4 sm:px-5 md:flex-row md:items-start md:justify-between"
+                    >
+                      <div className="flex min-w-0 flex-1 gap-3 md:min-w-[16rem]">
                         <span className="label-caps mt-0.5 shrink-0 text-[10px] text-muted-foreground">
                           {String(itemIndex + 1).padStart(2, "0")}
                         </span>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="text-base font-semibold tracking-tight text-foreground">
                             {item.name}
                           </p>
@@ -880,7 +883,7 @@ export function TeamReportDetail({
                           </p>
                         </div>
                       </div>
-                      <div className="flex flex-wrap gap-2">
+                      <div className="flex flex-wrap gap-2 pl-7 md:pl-0">
                         <span className="border border-border bg-background px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
                           Impact {item.impact}
                         </span>

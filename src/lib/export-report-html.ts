@@ -57,12 +57,18 @@ const EXPORT_BASE_CSS = `
   }
   body {
     font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
   }
   .jarbas-report-export {
+    width: 100%;
     max-width: 56rem;
     margin: 0 auto;
-    padding: 2.5rem 1.5rem 4rem;
+    padding: 1.25rem 1rem 3rem;
     box-sizing: border-box;
+    overflow-x: clip;
+    overflow-wrap: break-word;
+    word-wrap: break-word;
   }
   .jarbas-report-export *,
   .jarbas-report-export *::before,
@@ -73,10 +79,83 @@ const EXPORT_BASE_CSS = `
     color: inherit;
     text-decoration: none;
   }
+  .jarbas-report-export img,
+  .jarbas-report-export canvas,
+  .jarbas-report-export video,
+  .jarbas-report-export iframe {
+    max-width: 100%;
+    height: auto;
+  }
+  .jarbas-report-export svg {
+    max-width: 100%;
+  }
+  .jarbas-report-export pre,
+  .jarbas-report-export code {
+    max-width: 100%;
+    overflow-x: auto;
+  }
+  .jarbas-report-export table {
+    width: 100%;
+    max-width: 100%;
+  }
+  .jarbas-report-export .recharts-wrapper,
+  .jarbas-report-export .recharts-responsive-container {
+    max-width: 100% !important;
+  }
+  /* Title + body first, meta chips below on phone / narrow tablet. */
+  .jarbas-report-export [data-export-stack] {
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 0.75rem;
+  }
+  .jarbas-report-export [data-export-stack] > * {
+    flex: 0 0 auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    min-width: 0 !important;
+  }
+  @media (min-width: 640px) {
+    .jarbas-report-export {
+      padding: 2rem 1.25rem 3.5rem;
+    }
+  }
+  @media (min-width: 768px) {
+    .jarbas-report-export {
+      padding: 2.5rem 1.5rem 4rem;
+    }
+    .jarbas-report-export [data-export-stack] {
+      flex-direction: row !important;
+      align-items: flex-start !important;
+      justify-content: space-between !important;
+    }
+    .jarbas-report-export [data-export-stack] > *:first-child {
+      flex: 1 1 auto !important;
+      width: auto !important;
+      min-width: 16rem !important;
+    }
+    .jarbas-report-export [data-export-stack] > *:last-child:not(:only-child) {
+      width: auto !important;
+      flex: 0 0 auto !important;
+    }
+  }
+  @media (max-width: 639px) {
+    .jarbas-report-export {
+      font-size: 15px;
+    }
+    .jarbas-report-export h1 {
+      font-size: 1.5rem !important;
+      line-height: 1.25;
+    }
+    .jarbas-report-export h2 {
+      font-size: 1.05rem !important;
+    }
+  }
   @media print {
     .jarbas-report-export {
       max-width: none;
       padding: 0;
+      overflow: visible;
     }
     [data-pdf-block] {
       break-inside: avoid;

@@ -16,6 +16,8 @@
         "title": "Deployment Company of San Francisco",
         "width": 1180,
         "height": 780,
+        "minWidth": 920,
+        "minHeight": 640,
         "create": false
       }
     ],
