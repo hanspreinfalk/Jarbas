@@ -3,6 +3,7 @@ import { useUser } from "@clerk/clerk-react";
 import { useQuery } from "convex/react";
 import { Loader2, Sparkles } from "lucide-react";
 import { ModelPicker } from "@/components/jarbas/model-picker";
+import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -205,6 +206,9 @@ export function AnalyzeRangeDialog({
           </div>
         ) : (
           <div className="space-y-5">
+            {kind === "reports" || kind === "team-reports" ? (
+              <ReportCloudBanner tense="will" />
+            ) : null}
             <div>
               <p className="label-caps text-muted-foreground">Suggestions</p>
               <div className="mt-2 flex flex-wrap gap-2">

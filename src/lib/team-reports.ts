@@ -70,6 +70,8 @@ export type TeamWorkReport = {
   provider?: string;
   model?: string;
   jobId?: string;
+  /** Wall-clock ms from AI analysis start → finish. */
+  generationDurationMs?: number;
   selectedClerkUserIds?: string[];
   memberReportIds?: string[];
   analysis?: AnalysisTranscript;
@@ -178,6 +180,15 @@ export function normalizeTeamWorkReport(raw: Partial<TeamWorkReport> & Record<st
     provider: raw.provider ? String(raw.provider) : undefined,
     model: raw.model ? String(raw.model) : undefined,
     jobId: raw.jobId ? String(raw.jobId) : undefined,
+    generationDurationMs:
+      typeof raw.generationDurationMs === "number"
+        ? raw.generationDurationMs
+        : typeof raw.analysis?.durationMs === "number"
+          ? raw.analysis.durationMs
+          : typeof raw.analysis?.startedAt === "number" &&
+              typeof raw.analysis?.finishedAt === "number"
+            ? Math.max(0, raw.analysis.finishedAt - raw.analysis.startedAt)
+            : undefined,
     selectedClerkUserIds: asStringArray(raw.selectedClerkUserIds),
     memberReportIds: asStringArray(raw.memberReportIds),
     analysis: raw.analysis,

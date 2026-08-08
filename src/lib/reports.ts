@@ -92,6 +92,10 @@ export type WorkReport = {
   provider?: string;
   model?: string;
   jobId?: string;
+  /** Wall-clock ms from AI analysis start → finish. */
+  generationDurationMs?: number;
+  generationStartedAt?: number;
+  generationFinishedAt?: number;
   analysis?: import("@/lib/analysis").AnalysisTranscript;
 };
 
@@ -152,5 +156,16 @@ export function normalizeWorkReport(raw: WorkReport): WorkReport {
     jobId: raw.jobId,
     startDate: raw.startDate,
     endDate: raw.endDate,
+    generationDurationMs:
+      typeof raw.generationDurationMs === "number"
+        ? raw.generationDurationMs
+        : typeof raw.analysis?.durationMs === "number"
+          ? raw.analysis.durationMs
+          : typeof raw.analysis?.startedAt === "number" &&
+              typeof raw.analysis?.finishedAt === "number"
+            ? Math.max(0, raw.analysis.finishedAt - raw.analysis.startedAt)
+            : undefined,
+    generationStartedAt: raw.generationStartedAt,
+    generationFinishedAt: raw.generationFinishedAt,
   };
 }

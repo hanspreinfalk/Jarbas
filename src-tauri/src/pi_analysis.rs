@@ -324,6 +324,8 @@ fn extract_text_result(value: &Value) -> String {
 }
 
 fn build_analysis_blob(job: &ActiveJob) -> Value {
+    let finished_at_ms = now_millis();
+    let duration_ms = finished_at_ms.saturating_sub(job.started_at_ms);
     let tools: Vec<Value> = job
         .tools
         .iter()
@@ -349,7 +351,8 @@ fn build_analysis_blob(job: &ActiveJob) -> Value {
         "thinking": job.thinking,
         "tools": tools,
         "startedAt": job.started_at_ms,
-        "finishedAt": now_millis(),
+        "finishedAt": finished_at_ms,
+        "durationMs": duration_ms,
     })
 }
 
@@ -372,6 +375,15 @@ fn attach_meta(obj: &mut serde_json::Map<String, Value>, job: &ActiveJob, create
     obj.insert("model".into(), Value::String(job.model.clone()));
     obj.insert("jobId".into(), Value::String(job.id.clone()));
     obj.insert("analysis".into(), analysis.clone());
+    if let Some(duration_ms) = analysis.get("durationMs").cloned() {
+        obj.insert("generationDurationMs".into(), duration_ms);
+    }
+    if let Some(started_at) = analysis.get("startedAt").cloned() {
+        obj.insert("generationStartedAt".into(), started_at);
+    }
+    if let Some(finished_at) = analysis.get("finishedAt").cloned() {
+        obj.insert("generationFinishedAt".into(), finished_at);
+    }
 }
 
 fn write_item_file(kind: AnalysisKind, item: &Value) -> Result<String, String> {
@@ -1128,6 +1140,8 @@ Write a JSON object to the job file with shape:
       "owner": string,
       "relatedLearning": string,
       "hoursSavedPerCycle": string,
+      "firstSeen": string,
+      "lastSeen": string,
       "deliveryPlan": string[],
       "prerequisites": string[],
       "risks": string[]
@@ -1137,6 +1151,7 @@ Write a JSON object to the job file with shape:
 Produce 3-8 OPPORTUNITIES. An opportunity is an improvement unlock DERIVED from how the person works - automations, shortcuts, agents, digests, handoff fixes, delivery accelerators.
 Rules:
 - Every opportunity must cite an insight in "relatedLearning" (the observation it comes from) and restate that observation briefly in "signal".
+- "firstSeen" / "lastSeen" must be concrete timestamps for when the underlying signal showed up in the analyzed period (same style as insights, e.g. "Aug 7, 2026 at 1:31 AM PDT").
 - "unlock" = what becomes possible. Include concrete automation ideas when relevant.
 - Prefer positive unlock framing and concrete delivery horizons (days/weeks). Lead with speed of delivery.
 - Use both capture and connected-app evidence. Do not invent fake partner-billing stories.
@@ -1153,7 +1168,7 @@ Write a JSON object to the job file with shape:
     "role": string,
     "generatedAt": string,
     "headline": string,
-    "executiveBrief": string,
+    "executiveBrief": "GitHub-flavored markdown string",
     "keyInsight": string,
     "deliveryUnlock": string,
     "impactOnce": string,
@@ -1185,6 +1200,7 @@ This report is the FULL PACKAGE for the period - complete, polished, and exhaust
 
 Rules:
 - Fill EVERY section. Prefer depth over thin summaries. Numbers may be approximate when exact timing is unavailable, but never invent apps or activities that did not appear.
+- "executiveBrief" MUST be GitHub-flavored markdown (not a single plain-text wall). Use short paragraphs, **bold** for people/numbers/apps, ### subheadings and bullet lists when they help scanning. No HTML. No em dashes.
 - "learnings" must describe process/thinking patterns (insights). "opportunities" must each name the insight they come from in "fromLearning" and include a concrete "automationIdea" when relevant.
 - Prefer positive unlock framing. Avoid waste/leakage language.
 - Title/subtitle should read like a serious cycle report, not a stub.
@@ -1200,7 +1216,7 @@ Write a JSON object to the job file with shape:
     "scope": "team",
     "generatedAt": string,
     "headline": string,
-    "executiveBrief": string,
+    "executiveBrief": "GitHub-flavored markdown string",
     "keyInsight": string,
     "deliveryUnlock": string,
     "impactOnce": string,
@@ -1231,6 +1247,7 @@ Write a JSON object to the job file with shape:
   }
 }
 TEAM report: synthesize ONLY from staged member report JSON files (see PART C). Include every member in memberSnapshots.
+- "executiveBrief" MUST be GitHub-flavored markdown (short paragraphs, **bold**, ### headings, lists). No HTML. No em dashes.
 "##,
     };
 
@@ -1381,7 +1398,7 @@ Write a JSON object to the job file with shape:
     "scope": "team",
     "generatedAt": string,
     "headline": string,
-    "executiveBrief": string,
+    "executiveBrief": "GitHub-flavored markdown string",
     "keyInsight": string,
     "deliveryUnlock": string,
     "impactOnce": string,
@@ -1421,6 +1438,7 @@ This is a TEAM package, not a single-person report:
 
 Rules:
 - Include a memberSnapshots entry for every member report you read.
+- "executiveBrief" MUST be GitHub-flavored markdown (short paragraphs, **bold**, ### headings, lists). No HTML. No em dashes.
 - Prefer positive unlock framing. Avoid waste/leakage language.
 - Fill every section. Prefer depth over thin summaries.
 - Title/subtitle should read like a serious team cycle report.

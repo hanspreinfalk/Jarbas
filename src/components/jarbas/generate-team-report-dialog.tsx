@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Check, Loader2, Sparkles } from "lucide-react";
 import { ModelPicker } from "@/components/jarbas/model-picker";
+import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -172,7 +173,7 @@ export function GenerateTeamReportDialog({
           <DialogDescription>
             {submitting
               ? "Staging selected reports for the model to read."
-              : "Pick a timeframe and people. The model reads every matching report, then writes a multi-person team report."}
+              : "Pick a timeframe and people. Jarbas synthesizes their reports into one team report."}
           </DialogDescription>
         </DialogHeader>
 
@@ -188,6 +189,7 @@ export function GenerateTeamReportDialog({
           </div>
         ) : (
           <div className="space-y-5">
+            <ReportCloudBanner tense="will" />
             <div>
               <p className="label-caps text-muted-foreground">Timeframe</p>
               <div className="mt-2 flex flex-wrap gap-2">

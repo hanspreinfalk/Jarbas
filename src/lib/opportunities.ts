@@ -16,6 +16,8 @@ export type Opportunity = {
   deliveryPlan: string[];
   prerequisites: string[];
   risks: string[];
+  firstSeen?: string;
+  lastSeen?: string;
   createdAt?: string;
   startDate?: string;
   endDate?: string;

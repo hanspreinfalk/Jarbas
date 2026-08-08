@@ -24,6 +24,8 @@ export default defineSchema({
     startDate: v.optional(v.string()),
     endDate: v.optional(v.string()),
     generatedAt: v.optional(v.string()),
+    /** Wall-clock ms from AI analysis start → finish. */
+    generationDurationMs: v.optional(v.number()),
     /** Full WorkReport JSON (charts, sections, analysis transcript, …). */
     payload: v.any(),
   })

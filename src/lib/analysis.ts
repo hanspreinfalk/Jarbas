@@ -28,6 +28,7 @@ export type AnalysisTranscript = {
   tools: AnalysisToolCall[];
   startedAt?: number;
   finishedAt?: number;
+  durationMs?: number;
 };
 
 export type AnalysisEvent =

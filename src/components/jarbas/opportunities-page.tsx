@@ -17,6 +17,7 @@ import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
 import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
+import { PeriodBadge } from "@/components/jarbas/period-badge";
 import { Button } from "@/components/ui/button";
 import {
   deleteAnalysisItem,
@@ -24,7 +25,7 @@ import {
   updateAnalysisItem,
   type AnalysisTranscript,
 } from "@/lib/analysis";
-import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
+import { formatRangeLabel } from "@/lib/date-range";
 import type { Opportunity } from "@/lib/opportunities";
 
 type OpportunityDraft = {
@@ -44,6 +45,8 @@ type OpportunityDraft = {
   prerequisites: string;
   risks: string;
   apps: string;
+  startDate: string;
+  endDate: string;
 };
 
 function toDraft(opportunity: Opportunity): OpportunityDraft {
@@ -64,6 +67,8 @@ function toDraft(opportunity: Opportunity): OpportunityDraft {
     prerequisites: listToLines(opportunity.prerequisites),
     risks: listToLines(opportunity.risks),
     apps: listToCsv(opportunity.apps),
+    startDate: opportunity.startDate ?? "",
+    endDate: opportunity.endDate ?? "",
   };
 }
 
@@ -113,30 +118,38 @@ function OpportunityDetail({
     setSaving(true);
     setActionError(null);
     try {
-      const next = await updateAnalysisItem<Opportunity>(
+      const payload: Opportunity = {
+        ...opportunity,
+        title: draft.title.trim(),
+        category: draft.category.trim(),
+        signal: draft.signal.trim(),
+        unlock: draft.unlock.trim(),
+        impact: draft.impact.trim(),
+        effort: draft.effort.trim(),
+        horizon: draft.horizon.trim(),
+        whyNow: draft.whyNow.trim(),
+        successMetric: draft.successMetric.trim(),
+        owner: draft.owner.trim(),
+        relatedLearning: draft.relatedLearning.trim(),
+        hoursSavedPerCycle: draft.hoursSavedPerCycle.trim(),
+        deliveryPlan: linesToList(draft.deliveryPlan),
+        prerequisites: linesToList(draft.prerequisites),
+        risks: linesToList(draft.risks),
+        apps: csvToList(draft.apps),
+        startDate: draft.startDate.trim(),
+        endDate: draft.endDate.trim(),
+      };
+      const written = await updateAnalysisItem<Opportunity>(
         "opportunities",
         opportunity.id,
-        {
-          ...opportunity,
-          title: draft.title.trim(),
-          category: draft.category.trim(),
-          signal: draft.signal.trim(),
-          unlock: draft.unlock.trim(),
-          impact: draft.impact.trim(),
-          effort: draft.effort.trim(),
-          horizon: draft.horizon.trim(),
-          whyNow: draft.whyNow.trim(),
-          successMetric: draft.successMetric.trim(),
-          owner: draft.owner.trim(),
-          relatedLearning: draft.relatedLearning.trim(),
-          hoursSavedPerCycle: draft.hoursSavedPerCycle.trim(),
-          deliveryPlan: linesToList(draft.deliveryPlan),
-          prerequisites: linesToList(draft.prerequisites),
-          risks: linesToList(draft.risks),
-          apps: csvToList(draft.apps),
-        },
+        payload,
       );
-      onSaved(next);
+      // Re-read from local disk so the UI matches what was actually persisted.
+      const listed = await listAnalysisItems<Opportunity>("opportunities");
+      const saved =
+        listed.find((item) => item.id === opportunity.id) ?? written;
+      onSaved(saved);
+      setDraft(toDraft(saved));
       setEditing(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
@@ -234,6 +247,20 @@ function OpportunityDetail({
                   onChange={(v) => patchDraft("hoursSavedPerCycle", v)}
                 />
               </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Start date</FieldLabel>
+                <FieldInput
+                  value={draft.startDate}
+                  onChange={(v) => patchDraft("startDate", v)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>End date</FieldLabel>
+                <FieldInput
+                  value={draft.endDate}
+                  onChange={(v) => patchDraft("endDate", v)}
+                />
+              </div>
             </div>
           </div>
         ) : (
@@ -258,6 +285,20 @@ function OpportunityDetail({
             <p className="mt-3 text-sm text-muted-foreground">
               Owner {opportunity.owner} · Saves {opportunity.hoursSavedPerCycle}
             </p>
+            <PeriodBadge
+              className="mt-2 inline-flex"
+              startDate={opportunity.startDate}
+              endDate={opportunity.endDate}
+              firstSeen={opportunity.firstSeen}
+              lastSeen={opportunity.lastSeen}
+              hintTexts={[
+                opportunity.relatedLearning,
+                opportunity.signal,
+                opportunity.whyNow,
+              ]}
+              analysisStartedAt={opportunity.analysis?.startedAt}
+              analysisFinishedAt={opportunity.analysis?.finishedAt}
+            />
           </>
         )}
       </header>
@@ -549,10 +590,6 @@ export function OpportunitiesPage() {
       ) : (
         <ul className="mt-10 divide-y divide-border border border-border bg-card">
           {items.map((opportunity, index) => {
-            const rangeLabel = formatStartEndLabel(
-              opportunity.startDate,
-              opportunity.endDate,
-            );
             return (
             <li key={opportunity.id}>
               <button
@@ -576,11 +613,19 @@ export function OpportunitiesPage() {
                       Effort {opportunity.effort}
                     </span>
                   </div>
-                  {rangeLabel ? (
-                    <span className="text-xs text-muted-foreground">
-                      {rangeLabel}
-                    </span>
-                  ) : null}
+                  <PeriodBadge
+                    startDate={opportunity.startDate}
+                    endDate={opportunity.endDate}
+                    firstSeen={opportunity.firstSeen}
+                    lastSeen={opportunity.lastSeen}
+                    hintTexts={[
+                      opportunity.relatedLearning,
+                      opportunity.signal,
+                      opportunity.whyNow,
+                    ]}
+                    analysisStartedAt={opportunity.analysis?.startedAt}
+                    analysisFinishedAt={opportunity.analysis?.finishedAt}
+                  />
                 </div>
                 <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
                   {opportunity.title}

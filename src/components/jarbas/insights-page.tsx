@@ -17,6 +17,7 @@ import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalyzeRangeDialog } from "@/components/jarbas/analyze-range-dialog";
 import { AppBadgeList } from "@/components/jarbas/app-badge";
 import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
+import { PeriodBadge } from "@/components/jarbas/period-badge";
 import { Button } from "@/components/ui/button";
 import {
   deleteAnalysisItem,
@@ -24,7 +25,7 @@ import {
   updateAnalysisItem,
   type AnalysisTranscript,
 } from "@/lib/analysis";
-import { formatRangeLabel, formatStartEndLabel } from "@/lib/date-range";
+import { formatRangeLabel } from "@/lib/date-range";
 import type { Insight } from "@/lib/insights";
 import { cn } from "@/lib/utils";
 
@@ -71,6 +72,8 @@ type InsightDraft = {
   nextAction: string;
   timePattern: string;
   apps: string;
+  startDate: string;
+  endDate: string;
 };
 
 function toDraft(insight: Insight): InsightDraft {
@@ -89,6 +92,8 @@ function toDraft(insight: Insight): InsightDraft {
     nextAction: insight.nextAction ?? "",
     timePattern: insight.timePattern ?? "",
     apps: listToCsv(insight.apps),
+    startDate: insight.startDate ?? "",
+    endDate: insight.endDate ?? "",
   };
 }
 
@@ -135,7 +140,7 @@ function InsightDetail({
     setSaving(true);
     setActionError(null);
     try {
-      const next = await updateAnalysisItem<Insight>("insights", insight.id, {
+      const payload: Insight = {
         ...insight,
         title: draft.title.trim(),
         category: draft.category.trim(),
@@ -151,8 +156,20 @@ function InsightDetail({
         nextAction: draft.nextAction.trim(),
         timePattern: draft.timePattern.trim(),
         apps: csvToList(draft.apps),
-      });
-      onSaved(next);
+        startDate: draft.startDate.trim(),
+        endDate: draft.endDate.trim(),
+      };
+      const written = await updateAnalysisItem<Insight>(
+        "insights",
+        insight.id,
+        payload,
+      );
+      // Re-read from local disk so the UI matches what was actually persisted.
+      const listed = await listAnalysisItems<Insight>("insights");
+      const saved =
+        listed.find((item) => item.id === insight.id) ?? written;
+      onSaved(saved);
+      setDraft(toDraft(saved));
       setEditing(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
@@ -229,6 +246,20 @@ function InsightDetail({
                 <FieldLabel>Confidence</FieldLabel>
                 <FieldInput value={draft.confidence} onChange={(v) => patchDraft("confidence", v)} />
               </div>
+              <div className="space-y-1.5">
+                <FieldLabel>Start date</FieldLabel>
+                <FieldInput
+                  value={draft.startDate}
+                  onChange={(v) => patchDraft("startDate", v)}
+                />
+              </div>
+              <div className="space-y-1.5">
+                <FieldLabel>End date</FieldLabel>
+                <FieldInput
+                  value={draft.endDate}
+                  onChange={(v) => patchDraft("endDate", v)}
+                />
+              </div>
             </div>
           </div>
         ) : (
@@ -242,11 +273,13 @@ function InsightDetail({
                 {insight.category}
               </p>
             ) : null}
-            {formatStartEndLabel(insight.startDate, insight.endDate) ? (
-              <p className="mt-2 text-sm text-muted-foreground">
-                {formatStartEndLabel(insight.startDate, insight.endDate)}
-              </p>
-            ) : null}
+            <PeriodBadge
+              className="mt-2 inline-flex"
+              startDate={insight.startDate}
+              endDate={insight.endDate}
+              firstSeen={insight.firstSeen}
+              lastSeen={insight.lastSeen}
+            />
           </>
         )}
       </header>
@@ -546,10 +579,6 @@ export function InsightsPage() {
       ) : (
         <ul className="mt-10 divide-y divide-border border border-border bg-card">
           {items.map((insight, index) => {
-            const rangeLabel = formatStartEndLabel(
-              insight.startDate,
-              insight.endDate,
-            );
             return (
             <li key={insight.id}>
               <button
@@ -562,11 +591,12 @@ export function InsightsPage() {
                   <span className="label-caps border border-border bg-muted px-1.5 py-0.5 text-[10px] text-muted-foreground">
                     {insight.category}
                   </span>
-                  {rangeLabel ? (
-                    <span className="text-xs text-muted-foreground">
-                      {rangeLabel}
-                    </span>
-                  ) : null}
+                  <PeriodBadge
+                    startDate={insight.startDate}
+                    endDate={insight.endDate}
+                    firstSeen={insight.firstSeen}
+                    lastSeen={insight.lastSeen}
+                  />
                 </div>
                 <h2 className="mt-2 text-sm font-semibold tracking-tight text-foreground sm:text-base">
                   {insight.title}

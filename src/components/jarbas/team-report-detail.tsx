@@ -8,6 +8,7 @@ import {
   FieldLabel,
   TextArea,
 } from "@/components/jarbas/analysis-item-editor";
+import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
 import { Button } from "@/components/ui/button";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
@@ -144,10 +145,13 @@ export function TeamReportDetail({
         </p>
       ) : null}
 
-      <header className="mt-6 pb-2">
-        <p className="label-caps text-muted-foreground">Team report</p>
+      <header className="mt-8 pb-2 sm:mt-10">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <p className="label-caps text-muted-foreground">Team report</p>
+          <ReportCloudBanner />
+        </div>
         {editing ? (
-          <div className="mt-3 space-y-4">
+          <div className="mt-4 space-y-4">
             <div className="space-y-1.5">
               <FieldLabel>Title</FieldLabel>
               <FieldInput
@@ -174,10 +178,10 @@ export function TeamReportDetail({
           </div>
         ) : (
           <>
-            <h1 className="mt-2 font-display text-3xl tracking-tight text-foreground sm:text-4xl">
+            <h1 className="mt-4 font-display text-3xl tracking-tight text-foreground sm:mt-5 sm:text-4xl">
               {report.title}
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <p className="mt-3 text-sm text-muted-foreground">
               {report.subtitle}
               {report.period ? ` · ${report.period}` : ""}
             </p>

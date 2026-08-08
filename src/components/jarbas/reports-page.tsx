@@ -3,12 +3,13 @@ import { useAuth } from "@clerk/clerk-react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
-  CalendarDays,
   Download,
+  FileBarChart,
   Loader2,
   LoaderCircle,
   Sparkles,
 } from "lucide-react";
+import Markdown from "react-markdown";
 import {
   Area,
   AreaChart,
@@ -26,15 +27,13 @@ import { AnalysisChatPanel } from "@/components/jarbas/analysis-chat-panel";
 import {
   AnalysisItemToolbar,
   DeleteConfirmDialog,
-  FieldInput,
-  FieldLabel,
-  TextArea,
-  linesToList,
-  listToLines,
 } from "@/components/jarbas/analysis-item-editor";
 import { useAnalysisRun } from "@/components/jarbas/analysis-run-provider";
 import { AnalysisRunView } from "@/components/jarbas/analysis-run-view";
 import { AnalysisRunButton } from "@/components/jarbas/detail-ai-tabs";
+import { ReportCloudBanner } from "@/components/jarbas/report-cloud-banner";
+import { ReportDraftEditors } from "@/components/jarbas/report-draft-editors";
+import { PeriodBadge } from "@/components/jarbas/period-badge";
 import { Button } from "@/components/ui/button";
 import {
   ChartContainer,
@@ -45,8 +44,13 @@ import {
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import type { AnalysisTranscript } from "@/lib/analysis";
-import { formatRangeLabel } from "@/lib/date-range";
+import { formatGeneratedAt, formatGenerationDuration, formatRangeLabel } from "@/lib/date-range";
 import { exportReportPdf } from "@/lib/export-report-pdf";
+import {
+  applyReportDraft,
+  toReportDraft,
+  type ReportDraft,
+} from "@/lib/report-draft";
 import { normalizeWorkReport, type WorkReport } from "@/lib/reports";
 import { cn } from "@/lib/utils";
 
@@ -87,6 +91,75 @@ function scrollToReportSection(id: string) {
   const target = document.getElementById(id);
   if (!target) return;
   target.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function ReportMarkdown({ content }: { content: string }) {
+  return (
+    <div className="text-sm leading-relaxed text-foreground/90 sm:text-[15px]">
+      <Markdown
+        components={{
+          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          ul: ({ children }) => (
+            <ul className="mb-3 list-disc space-y-1.5 pl-5 last:mb-0">
+              {children}
+            </ul>
+          ),
+          ol: ({ children }) => (
+            <ol className="mb-3 list-decimal space-y-1.5 pl-5 last:mb-0">
+              {children}
+            </ol>
+          ),
+          li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+          strong: ({ children }) => (
+            <strong className="font-semibold text-foreground">{children}</strong>
+          ),
+          em: ({ children }) => <em className="italic">{children}</em>,
+          h1: ({ children }) => (
+            <h3 className="mb-2 mt-4 font-display text-lg tracking-tight text-foreground first:mt-0">
+              {children}
+            </h3>
+          ),
+          h2: ({ children }) => (
+            <h3 className="mb-2 mt-4 font-display text-base tracking-tight text-foreground first:mt-0">
+              {children}
+            </h3>
+          ),
+          h3: ({ children }) => (
+            <h4 className="mb-1.5 mt-3 text-sm font-semibold text-foreground first:mt-0">
+              {children}
+            </h4>
+          ),
+          code: ({ className, children }) => {
+            const isBlock = Boolean(className?.includes("language-"));
+            if (isBlock) {
+              return (
+                <code className="font-mono text-[12px] text-foreground">
+                  {children}
+                </code>
+              );
+            }
+            return (
+              <code className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[12px] text-foreground">
+                {children}
+              </code>
+            );
+          },
+          pre: ({ children }) => (
+            <pre className="mb-3 overflow-x-auto border border-border bg-muted/50 p-3 last:mb-0">
+              {children}
+            </pre>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="mb-3 border-l-2 border-primary/40 pl-3 text-muted-foreground last:mb-0">
+              {children}
+            </blockquote>
+          ),
+        }}
+      >
+        {content}
+      </Markdown>
+    </div>
+  );
 }
 
 function ReportIndex() {
@@ -184,19 +257,7 @@ function ReportDetail({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
-  const [draft, setDraft] = useState({
-    title: report.title ?? "",
-    subtitle: report.subtitle ?? "",
-    period: report.period ?? "",
-    person: report.person ?? "",
-    role: report.role ?? "",
-    headline: report.headline ?? "",
-    executiveBrief: report.executiveBrief ?? "",
-    keyInsight: report.keyInsight ?? "",
-    deliveryUnlock: report.deliveryUnlock ?? "",
-    impactOnce: report.impactOnce ?? "",
-    improvements: listToLines(report.improvements),
-  });
+  const [draft, setDraft] = useState<ReportDraft>(() => toReportDraft(report));
   const analysis = report.analysis as AnalysisTranscript | undefined;
   const promptLabel = `Generate a full report for ${formatRangeLabel(
     report.startDate ?? "",
@@ -204,19 +265,7 @@ function ReportDetail({
   )}.`;
 
   useEffect(() => {
-    setDraft({
-      title: report.title ?? "",
-      subtitle: report.subtitle ?? "",
-      period: report.period ?? "",
-      person: report.person ?? "",
-      role: report.role ?? "",
-      headline: report.headline ?? "",
-      executiveBrief: report.executiveBrief ?? "",
-      keyInsight: report.keyInsight ?? "",
-      deliveryUnlock: report.deliveryUnlock ?? "",
-      impactOnce: report.impactOnce ?? "",
-      improvements: listToLines(report.improvements),
-    });
+    setDraft(toReportDraft(report));
     setEditing(false);
     setActionError(null);
   }, [report]);
@@ -262,22 +311,10 @@ function ReportDetail({
     setSaving(true);
     setActionError(null);
     try {
+      const payload = applyReportDraft(report, draft);
       const next = await updateReport({
         id: report.id as Id<"reports">,
-        payload: {
-          ...report,
-          title: draft.title.trim(),
-          subtitle: draft.subtitle.trim(),
-          period: draft.period.trim(),
-          person: draft.person.trim(),
-          role: draft.role.trim(),
-          headline: draft.headline.trim(),
-          executiveBrief: draft.executiveBrief.trim(),
-          keyInsight: draft.keyInsight.trim(),
-          deliveryUnlock: draft.deliveryUnlock.trim(),
-          impactOnce: draft.impactOnce.trim(),
-          improvements: linesToList(draft.improvements),
-        },
+        payload,
       });
       onSaved(normalizeWorkReport(next as unknown as WorkReport));
       setEditing(false);
@@ -324,10 +361,12 @@ function ReportDetail({
               saving={saving}
               deleting={deleting}
               onEdit={() => {
+                setDraft(toReportDraft(report));
                 setEditing(true);
                 setActionError(null);
               }}
               onCancelEdit={() => {
+                setDraft(toReportDraft(report));
                 setEditing(false);
                 setActionError(null);
               }}
@@ -375,137 +414,48 @@ function ReportDetail({
             promptLabel={promptLabel}
           />
         </div>
+      ) : editing ? (
+        <div className="pt-8 sm:pt-10">
+          <ReportCloudBanner className="mb-6" />
+          <ReportDraftEditors draft={draft} setDraft={setDraft} />
+        </div>
       ) : (
-      <div ref={reportRef} className="pt-6">
+      <>
+      <div ref={reportRef} className="pt-8 sm:pt-10">
       {/* Header */}
       <header className="pb-2">
-        {editing ? (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <FieldLabel>Title</FieldLabel>
-              <FieldInput
-                value={draft.title}
-                onChange={(value) => setDraft((c) => ({ ...c, title: value }))}
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <FieldLabel>Subtitle</FieldLabel>
-                <FieldInput
-                  value={draft.subtitle}
-                  onChange={(value) => setDraft((c) => ({ ...c, subtitle: value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel>Period</FieldLabel>
-                <FieldInput
-                  value={draft.period}
-                  onChange={(value) => setDraft((c) => ({ ...c, period: value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel>Person</FieldLabel>
-                <FieldInput
-                  value={draft.person}
-                  onChange={(value) => setDraft((c) => ({ ...c, person: value }))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel>Role</FieldLabel>
-                <FieldInput
-                  value={draft.role}
-                  onChange={(value) => setDraft((c) => ({ ...c, role: value }))}
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <FieldLabel>Headline</FieldLabel>
-              <TextArea
-                value={draft.headline}
-                onChange={(value) => setDraft((c) => ({ ...c, headline: value }))}
-                rows={3}
-              />
-            </div>
-          </div>
-        ) : (
           <>
-            <p className="label-caps text-muted-foreground">{report.period}</p>
-            <h1 className="mt-1 font-display text-2xl tracking-tight text-foreground sm:text-3xl lg:text-4xl">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+              <p className="label-caps text-muted-foreground">{report.period}</p>
+              <ReportCloudBanner />
+            </div>
+            <h1 className="mt-4 font-display text-2xl tracking-tight text-foreground sm:mt-5 sm:text-3xl lg:text-4xl">
               {report.title}
             </h1>
-            <p className="mt-2 text-sm text-muted-foreground">
-              {report.person} · {report.role} · Generated {report.generatedAt}
-            </p>
-            <p className="mt-4 text-sm leading-relaxed text-foreground sm:text-[15px]">
+            <div className="mt-3 space-y-0.5 text-sm text-muted-foreground">
+              <p>{report.person}</p>
+              {report.role ? <p>{report.role}</p> : null}
+              {formatGeneratedAt(report.generatedAt) ? (
+                <p>
+                  Generated {formatGeneratedAt(report.generatedAt)}
+                  {formatGenerationDuration(report.generationDurationMs)
+                    ? ` · took ${formatGenerationDuration(report.generationDurationMs)}`
+                    : ""}
+                </p>
+              ) : null}
+            </div>
+            <p className="mt-5 max-w-2xl text-sm leading-relaxed text-foreground sm:text-[15px]">
               {report.headline}
             </p>
           </>
-        )}
       </header>
 
       <ReportIndex />
 
       {/* 01 Summary */}
       <Section step="01" title="Explanation" id="report-section-01">
-        {editing ? (
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <FieldLabel>Executive brief</FieldLabel>
-              <TextArea
-                value={draft.executiveBrief}
-                onChange={(value) =>
-                  setDraft((c) => ({ ...c, executiveBrief: value }))
-                }
-                rows={5}
-              />
-            </div>
-            <div className="space-y-1.5">
-              <FieldLabel>Key insight</FieldLabel>
-              <TextArea
-                value={draft.keyInsight}
-                onChange={(value) =>
-                  setDraft((c) => ({ ...c, keyInsight: value }))
-                }
-                rows={3}
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <FieldLabel>Delivery unlock</FieldLabel>
-                <FieldInput
-                  value={draft.deliveryUnlock}
-                  onChange={(value) =>
-                    setDraft((c) => ({ ...c, deliveryUnlock: value }))
-                  }
-                />
-              </div>
-              <div className="space-y-1.5">
-                <FieldLabel>Impact once</FieldLabel>
-                <FieldInput
-                  value={draft.impactOnce}
-                  onChange={(value) =>
-                    setDraft((c) => ({ ...c, impactOnce: value }))
-                  }
-                />
-              </div>
-            </div>
-            <div className="space-y-1.5">
-              <FieldLabel>Improvements</FieldLabel>
-              <TextArea
-                value={draft.improvements}
-                onChange={(value) =>
-                  setDraft((c) => ({ ...c, improvements: value }))
-                }
-                rows={4}
-              />
-              <p className="text-xs text-muted-foreground">One item per line</p>
-            </div>
-          </div>
-        ) : (
           <>
-            <p className="text-sm leading-relaxed text-foreground/90 sm:text-[15px]">
-              {report.executiveBrief}
-            </p>
+            <ReportMarkdown content={report.executiveBrief} />
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <div className="border border-border bg-card px-3 py-3">
                 <p className="label-caps text-muted-foreground">Key insight</p>
@@ -526,7 +476,6 @@ function ReportDetail({
               </div>
             </div>
           </>
-        )}
       </Section>
 
       {/* 02 Snapshot */}
@@ -960,6 +909,7 @@ function ReportDetail({
         </div>
       </Section>
       </div>
+      </>
       )}
 
       <DeleteConfirmDialog
@@ -1152,16 +1102,30 @@ export function ReportsPage() {
                 style={{ animationDelay: `${index * 60}ms` }}
               >
                 <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center border border-border bg-background text-muted-foreground">
-                  <CalendarDays className="size-4" />
+                  <FileBarChart className="size-4" />
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold tracking-tight text-foreground">
-                    {report.title}
+                  <span className="flex items-start justify-between gap-3">
+                    <span className="min-w-0 text-sm font-semibold tracking-tight text-foreground">
+                      {report.title}
+                    </span>
+                    <PeriodBadge
+                      period={report.period}
+                      startDate={report.startDate}
+                      endDate={report.endDate}
+                      timeline={report.timeline}
+                    />
                   </span>
-                  <span className="mt-1 block text-xs text-muted-foreground">
-                    {report.period}
-                    {report.person ? ` · ${report.person}` : ""}
-                  </span>
+                  {formatGeneratedAt(report.generatedAt) ? (
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      Generated {formatGeneratedAt(report.generatedAt)}
+                      {report.person ? ` · ${report.person}` : ""}
+                    </span>
+                  ) : report.person ? (
+                    <span className="mt-1 block text-xs text-muted-foreground">
+                      {report.person}
+                    </span>
+                  ) : null}
                 </span>
               </button>
             </li>
@@ -1174,7 +1138,7 @@ export function ReportsPage() {
         onOpenChange={setOpen}
         kind="reports"
         title="Generate full report"
-        description="Choose dates to review. Jarbas builds the full picture: timeline, explanation, how you work, and opportunities to unlock next."
+        description="Pick a range. Jarbas builds the full report for that period."
         confirmLabel="Generate full report"
         onStarted={startRun}
       />

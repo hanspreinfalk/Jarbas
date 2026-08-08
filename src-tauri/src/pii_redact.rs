@@ -697,7 +697,8 @@ fn redact_query(
     Ok(())
 }
 
-pub fn remove_pii(text: &str) -> String {
+#[cfg(test)]
+fn remove_pii(text: &str) -> String {
     remove_pii_with_counts(text).0
 }
 

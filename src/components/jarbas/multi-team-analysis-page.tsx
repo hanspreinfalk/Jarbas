@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useAuth, useOrganization } from "@clerk/clerk-react";
+import { useAuth, useClerk, useOrganization } from "@clerk/clerk-react";
 import { useMutation, useQuery } from "convex/react";
 import {
   ArrowLeft,
-  CalendarDays,
+  FileBarChart,
   Loader2,
   MoreHorizontal,
   Network,
@@ -11,6 +11,7 @@ import {
   Search,
   Sparkles,
   Trash2,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { DeleteConfirmDialog } from "@/components/jarbas/analysis-item-editor";
@@ -23,6 +24,7 @@ import {
   type GenerateTeamReportValues,
   type TeamReportPerson,
 } from "@/components/jarbas/generate-team-report-dialog";
+import { PeriodBadge } from "@/components/jarbas/period-badge";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -42,6 +44,7 @@ import { Input } from "@/components/ui/input";
 import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import { startAnalysis } from "@/lib/analysis";
+import { formatGeneratedAt } from "@/lib/date-range";
 import { reportOverlapsDateRange } from "@/lib/report-range";
 import { normalizeWorkReport, type WorkReport } from "@/lib/reports";
 import {
@@ -76,6 +79,7 @@ type View =
 
 export function MultiTeamAnalysisPage() {
   const { orgId } = useAuth();
+  const clerk = useClerk();
   const { memberships, isLoaded: orgLoaded } = useOrganization({
     memberships: { infinite: true },
   });
@@ -456,16 +460,25 @@ export function MultiTeamAnalysisPage() {
                   style={{ animationDelay: `${index * 60}ms` }}
                 >
                   <span className="mt-0.5 flex size-9 shrink-0 items-center justify-center border border-border bg-background text-muted-foreground">
-                    <CalendarDays className="size-4" />
+                    <FileBarChart className="size-4" />
                   </span>
                   <span className="min-w-0 flex-1">
-                    <span className="block text-sm font-semibold tracking-tight text-foreground">
-                      {report.title}
+                    <span className="flex items-start justify-between gap-3">
+                      <span className="min-w-0 text-sm font-semibold tracking-tight text-foreground">
+                        {report.title}
+                      </span>
+                      <PeriodBadge
+                        period={report.period}
+                        startDate={report.startDate}
+                        endDate={report.endDate}
+                        timeline={report.timeline}
+                      />
                     </span>
-                    <span className="mt-1 block text-xs text-muted-foreground">
-                      {report.period}
-                      {report.generatedAt ? ` · ${report.generatedAt}` : ""}
-                    </span>
+                    {formatGeneratedAt(report.generatedAt) ? (
+                      <span className="mt-1 block text-xs text-muted-foreground">
+                        Generated {formatGeneratedAt(report.generatedAt)}
+                      </span>
+                    ) : null}
                   </span>
                 </button>
               </li>
@@ -479,6 +492,12 @@ export function MultiTeamAnalysisPage() {
   const loadingMembers = !orgLoaded || memberships?.isLoading;
   const loadingReports = Boolean(orgId) && orgReports === undefined;
 
+  function openInviteMembers() {
+    clerk.openOrganizationProfile({
+      __experimental_startPath: "/organization-members",
+    });
+  }
+
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
       <div className="min-w-0">
@@ -487,22 +506,34 @@ export function MultiTeamAnalysisPage() {
           <h1 className="font-display text-3xl tracking-tight text-foreground sm:text-4xl">
             Team analysis
           </h1>
-          <Button
-            type="button"
-            className="shrink-0 rounded-none self-start sm:self-auto"
-            disabled={!orgId || members.length === 0}
-            onClick={() => {
-              setError(null);
-              setGenerateOpen(true);
-            }}
-          >
-            <Sparkles className="size-3.5" />
-            Generate team report
-          </Button>
+          <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+            <Button
+              type="button"
+              variant="outline"
+              className="shrink-0 rounded-none"
+              disabled={!orgId}
+              onClick={openInviteMembers}
+            >
+              <UserPlus className="size-3.5" />
+              Invite people
+            </Button>
+            <Button
+              type="button"
+              className="shrink-0 rounded-none"
+              disabled={!orgId || members.length === 0}
+              onClick={() => {
+                setError(null);
+                setGenerateOpen(true);
+              }}
+            >
+              <Sparkles className="size-3.5" />
+              Generate team report
+            </Button>
+          </div>
         </div>
         <p className="mt-3 max-w-xl text-sm leading-relaxed text-muted-foreground sm:text-[15px]">
-          Review teammate reports, then synthesize a team report from the ones
-          you select.
+          Invite teammates, review their reports, then synthesize a team report
+          from the ones you select.
         </p>
       </div>
 
@@ -535,6 +566,15 @@ export function MultiTeamAnalysisPage() {
                 <p className="text-sm text-muted-foreground">
                   No members in this organization yet.
                 </p>
+                <Button
+                  type="button"
+                  className="mt-4 rounded-none"
+                  disabled={!orgId}
+                  onClick={openInviteMembers}
+                >
+                  <UserPlus className="size-3.5" />
+                  Invite people
+                </Button>
               </div>
             ) : (
               <>
@@ -645,13 +685,21 @@ export function MultiTeamAnalysisPage() {
                         <Network className="size-4" />
                       </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-semibold tracking-tight text-foreground">
-                          {report.title}
+                        <span className="flex items-start justify-between gap-3">
+                          <span className="min-w-0 text-sm font-semibold tracking-tight text-foreground">
+                            {report.title}
+                          </span>
+                          <PeriodBadge
+                            period={report.period}
+                            startDate={report.startDate}
+                            endDate={report.endDate}
+                          />
                         </span>
-                        <span className="mt-1 block text-xs text-muted-foreground">
-                          {report.period}
-                          {report.generatedAt ? ` · ${report.generatedAt}` : ""}
-                        </span>
+                        {formatGeneratedAt(report.generatedAt) ? (
+                          <span className="mt-1 block text-xs text-muted-foreground">
+                            Generated {formatGeneratedAt(report.generatedAt)}
+                          </span>
+                        ) : null}
                       </span>
                     </button>
                     <div className="flex shrink-0 items-center pr-3 sm:pr-4">

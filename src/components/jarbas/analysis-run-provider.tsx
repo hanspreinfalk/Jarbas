@@ -19,6 +19,7 @@ import {
   type AnalysisToolCall,
   type AnalysisTranscript,
 } from "@/lib/analysis";
+import { playAnalysisCompleteSound } from "@/lib/analysis-sounds";
 
 type AnalysisRunContextValue = {
   meta: AnalysisRunMeta | null;
@@ -209,6 +210,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
               }
             : current,
         );
+        playAnalysisCompleteSound();
         return;
       }
 
@@ -286,6 +288,7 @@ export function AnalysisRunProvider({ children }: { children: ReactNode }) {
                 }
               : current,
           );
+          playAnalysisCompleteSound();
           return;
         }
 

@@ -50,8 +50,59 @@ function asReportPayload(raw: unknown): Record<string, unknown> {
   return raw as Record<string, unknown>;
 }
 
+function resolveGenerationDurationMs(
+  payload: Record<string, unknown>,
+): number | undefined {
+  const top = payload.generationDurationMs;
+  if (typeof top === "number" && Number.isFinite(top) && top >= 0) {
+    return Math.round(top);
+  }
+
+  const analysis = payload.analysis;
+  if (analysis && typeof analysis === "object" && !Array.isArray(analysis)) {
+    const blob = analysis as Record<string, unknown>;
+    const duration = blob.durationMs;
+    if (
+      typeof duration === "number" &&
+      Number.isFinite(duration) &&
+      duration >= 0
+    ) {
+      return Math.round(duration);
+    }
+    const started = blob.startedAt;
+    const finished = blob.finishedAt;
+    if (
+      typeof started === "number" &&
+      typeof finished === "number" &&
+      Number.isFinite(started) &&
+      Number.isFinite(finished) &&
+      finished >= started
+    ) {
+      return Math.round(finished - started);
+    }
+  }
+
+  const started = payload.generationStartedAt;
+  const finished = payload.generationFinishedAt;
+  if (
+    typeof started === "number" &&
+    typeof finished === "number" &&
+    Number.isFinite(started) &&
+    Number.isFinite(finished) &&
+    finished >= started
+  ) {
+    return Math.round(finished - started);
+  }
+
+  return undefined;
+}
+
 function docToWorkReport(doc: Doc<"reports">): Record<string, unknown> {
   const payload = asReportPayload(doc.payload);
+  const generationDurationMs =
+    typeof doc.generationDurationMs === "number"
+      ? doc.generationDurationMs
+      : resolveGenerationDurationMs(payload);
   return {
     ...payload,
     id: doc._id,
@@ -64,6 +115,7 @@ function docToWorkReport(doc: Doc<"reports">): Record<string, unknown> {
       (payload.generatedAt as string | undefined) ??
       (payload.createdAt as string | undefined) ??
       "",
+    generationDurationMs,
     _convex: {
       organizationId: doc.organizationId,
       clerkUserId: doc.clerkUserId,
@@ -220,6 +272,11 @@ export const create = mutation({
       rest.scope = "team";
     }
 
+    const generationDurationMs = resolveGenerationDurationMs(rest);
+    if (generationDurationMs != null) {
+      rest.generationDurationMs = generationDurationMs;
+    }
+
     // Idempotent on analysis jobId so a missed UI completion cannot double-insert.
     const jobId =
       typeof rest.jobId === "string"
@@ -253,6 +310,7 @@ export const create = mutation({
       startDate,
       endDate,
       generatedAt,
+      generationDurationMs,
       payload: rest,
     });
 
@@ -311,6 +369,34 @@ export const update = mutation({
     const next = await ctx.db.get(args.id);
     if (!next) throw new Error("Report not found");
     return docToWorkReport(next);
+  },
+});
+
+/** Patch only `payload.executiveBrief` (CLI / targeted edits). Auth via --identity. */
+export const patchExecutiveBrief = mutation({
+  args: {
+    id: v.id("reports"),
+    executiveBrief: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const identity = requireIdentity(await ctx.auth.getUserIdentity());
+    const doc = await ctx.db.get(args.id);
+    if (!doc) throw new Error("Report not found");
+    assertOrgMatches(identity, doc.organizationId);
+
+    const isOwner =
+      doc.clerkUserId === identity.subject ||
+      doc.createdByClerkUserId === identity.subject;
+    if (!isOwner) {
+      assertOrgAdmin(identity);
+    }
+
+    const payload = {
+      ...asReportPayload(doc.payload),
+      executiveBrief: args.executiveBrief,
+    };
+    await ctx.db.patch(args.id, { payload });
+    return { ok: true as const, id: args.id };
   },
 });
 
