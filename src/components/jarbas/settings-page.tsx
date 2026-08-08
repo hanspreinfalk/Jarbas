@@ -6,8 +6,10 @@ import {
   Eye,
   EyeOff,
   ExternalLink,
+  ChevronRight,
   History,
   Loader2,
+  Lock,
   Plus,
   RefreshCw,
   RotateCcw,
@@ -877,6 +879,31 @@ export function SettingsPage({
               {onboardingError}
             </p>
           ) : null}
+        </div>
+      </section>
+
+      <section className="mt-8">
+        <p className="label-caps text-primary">Trust</p>
+        <div className="mt-2 border border-border bg-card">
+          <button
+            type="button"
+            className="flex w-full items-start justify-between gap-4 px-4 py-3 text-left transition-colors hover:bg-muted/50"
+            onClick={() => onNavigate?.("privacy")}
+          >
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <Lock className="size-3.5 shrink-0 text-primary" />
+                <h2 className="text-base font-semibold tracking-tight text-foreground">
+                  How Jarbas uses data
+                </h2>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">
+                What stays on this device, what can go to the cloud, and your
+                privacy controls.
+              </p>
+            </div>
+            <ChevronRight className="mt-1 size-4 shrink-0 text-muted-foreground" />
+          </button>
         </div>
       </section>
 

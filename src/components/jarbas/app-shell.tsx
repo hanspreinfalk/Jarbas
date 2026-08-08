@@ -30,6 +30,7 @@ import {
   RecordingStatusProvider,
   useRecordingStatus,
 } from "@/components/jarbas/recording-status-provider";
+import { PrivacyPage } from "@/components/jarbas/privacy-page";
 import { RedactionsPage } from "@/components/jarbas/redactions-page";
 import { ReportsPage } from "@/components/jarbas/reports-page";
 import { SettingsPage } from "@/components/jarbas/settings-page";
@@ -101,7 +102,8 @@ function AppShellInner() {
                 {tabs.map((tab) => {
                   const active =
                     tab.id === activeId ||
-                    (activeId === "redactions" && tab.id === "settings");
+                    ((activeId === "redactions" || activeId === "privacy") &&
+                      tab.id === "settings");
                   const Icon = tab.icon;
                   const showLive =
                     tab.id === "recording" && recording;
@@ -201,6 +203,8 @@ function AppShellInner() {
               <MultiTeamAnalysisPage />
             ) : activeId === "redactions" ? (
               <RedactionsPage onNavigate={setActiveId} />
+            ) : activeId === "privacy" ? (
+              <PrivacyPage onNavigate={setActiveId} />
             ) : activeId === "billing" ? (
               <BillingPage />
             ) : (

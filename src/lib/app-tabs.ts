@@ -24,6 +24,7 @@ export type AppTabId =
   | "settings"
   | "billing"
   | "redactions"
+  | "privacy"
   | "ask"
   | "multi-team-analysis";
 
@@ -48,6 +49,7 @@ export const APP_PAGE_LABELS: Record<AppTabId, string> = {
   settings: "Settings",
   billing: "Pricing",
   redactions: "Redactions",
+  privacy: "How Jarbas uses data",
   "multi-team-analysis": "Team analysis",
 };
 
