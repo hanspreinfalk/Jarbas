@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { resolveAppLogo } from "@/lib/app-logos";
 import { cn } from "@/lib/utils";
@@ -11,7 +12,22 @@ function AppLogoMark({
 }) {
   const app = resolveAppLogo(name);
   const isJarbas = app.name.trim().toLowerCase() === "jarbas";
-  const isSimpleIcon = Boolean(app.logoUrl?.includes("simple-icons"));
+  const candidates = [app.logoUrl, ...app.logoFallbacks].filter(
+    (url): url is string => Boolean(url),
+  );
+  const [candidateIndex, setCandidateIndex] = useState(0);
+  const [exhausted, setExhausted] = useState(false);
+
+  useEffect(() => {
+    setCandidateIndex(0);
+    setExhausted(false);
+  }, [name]);
+
+  const logoUrl =
+    !exhausted && candidates.length > 0
+      ? (candidates[candidateIndex] ?? null)
+      : null;
+  const isSimpleIcon = Boolean(logoUrl?.includes("simple-icons"));
 
   if (isJarbas) {
     return (
@@ -27,10 +43,11 @@ function AppLogoMark({
     );
   }
 
-  if (app.logoUrl) {
+  if (logoUrl) {
     return (
       <img
-        src={app.logoUrl}
+        key={logoUrl}
+        src={logoUrl}
         alt=""
         className={cn(
           "size-3.5 shrink-0 object-contain",
@@ -38,6 +55,13 @@ function AppLogoMark({
           className,
         )}
         loading="lazy"
+        onError={() => {
+          if (candidateIndex + 1 < candidates.length) {
+            setCandidateIndex(candidateIndex + 1);
+          } else {
+            setExhausted(true);
+          }
+        }}
       />
     );
   }
