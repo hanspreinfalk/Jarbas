@@ -1,3 +1,4 @@
+mod capture_filters;
 mod clerk_billing;
 mod composio;
 mod data_reset;
@@ -300,6 +301,9 @@ pub fn run() {
             pii_redact::get_redaction_history,
             pii_redact::get_redaction_prefs,
             pii_redact::set_auto_redact_on_stop,
+            pii_redact::set_enabled_redaction_categories,
+            capture_filters::get_capture_filters,
+            capture_filters::set_capture_filters,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

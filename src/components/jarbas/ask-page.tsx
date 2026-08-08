@@ -153,6 +153,50 @@ type ChatMessage = {
   error?: string;
 };
 
+function formatAskErrorMessage(raw: string): string {
+  const message = raw.trim();
+  if (!message) {
+    return "Something went wrong. Try again in a moment.";
+  }
+  const lower = message.toLowerCase();
+  if (
+    lower.includes("insufficient") ||
+    lower.includes("credit") ||
+    lower.includes("quota") ||
+    lower.includes("billing") ||
+    lower.includes("payment required") ||
+    lower.includes("exceeded your current quota")
+  ) {
+    return "This model is out of credits or quota. Add billing, pick another model in Ask, or update your API key in Settings.";
+  }
+  if (
+    lower.includes("invalid api key") ||
+    lower.includes("incorrect api key") ||
+    lower.includes("authentication") ||
+    lower.includes("unauthorized") ||
+    lower.includes("401")
+  ) {
+    return "The API key was rejected. Check your key in Settings.";
+  }
+  if (
+    lower.includes("rate limit") ||
+    lower.includes("too many requests") ||
+    lower.includes("429")
+  ) {
+    return "The provider rate-limited this request. Wait a moment and try again.";
+  }
+  if (
+    lower.includes("assistant process stopped") ||
+    lower.includes("process stopped")
+  ) {
+    return "Ask stopped unexpectedly. Try again — if it keeps happening, check Settings for your model and API key.";
+  }
+  if (lower.includes("timed out") || lower.includes("timeout")) {
+    return "Ask timed out. Try a shorter question, or try again.";
+  }
+  return message;
+}
+
 const SUGGESTIONS = [
   "What did I spend the most time on yesterday?",
   "Which workflows look ready to automate?",
@@ -856,30 +900,25 @@ export function AskPage() {
           ),
         }));
         break;
-      case "error":
-        // Intentional agent restarts emit this; ignore so the send UI stays live.
-        if (
-          event.message.toLowerCase().includes("assistant process stopped")
-        ) {
-          break;
-        }
-        setStreamError(event.message);
-        patchAssistant((message) => {
+      case "error": {
+        const message = formatAskErrorMessage(event.message);
+        setStreamError(message);
+        patchAssistant((current) => {
           const finishedAt = Date.now();
           return {
-            ...message,
-            error: event.message,
-            content:
-              message.content ||
-              "Something went wrong. Try again in a moment.",
+            ...current,
+            error: message,
+            // Prefer the real error in the bubble; keep any partial reply above it.
+            content: current.content.trim()
+              ? current.content
+              : message,
             createdAt: finishedAt,
             finishedAt,
           };
         });
-        if (event.message.toLowerCase().includes("timed out")) {
-          finishAssistant();
-        }
+        finishAssistant();
         break;
+      }
       case "agentSettled":
         finishAssistant();
         break;
@@ -1008,15 +1047,15 @@ export function AskPage() {
     try {
       await askSendPrompt(trimmed, { composioUserId });
     } catch (error) {
-      const message =
+      const raw =
         error instanceof Error ? error.message : String(error);
+      const message = formatAskErrorMessage(raw);
       setStreamError(message);
       patchAssistant((current) => ({
         ...current,
         error: message,
-        content:
-          current.content ||
-          "Could not reach Ask. Check Settings and try again.",
+        content: current.content.trim() ? current.content : message,
+        finishedAt: Date.now(),
       }));
       finishAssistant();
     }
@@ -1042,9 +1081,11 @@ export function AskPage() {
   function renderAssistantBody(message: ChatMessage) {
     const tools = message.tools ?? [];
     const hasTools = tools.length > 0;
-    const isLive = sending && assistantIdRef.current === message.id;
+    const hasError = Boolean(message.error);
+    const isLive =
+      sending && assistantIdRef.current === message.id && !hasError;
     const hasReply = Boolean(message.content.trim());
-    const showThinking = isLive && !hasReply;
+    const showThinking = isLive && !hasReply && !hasError;
     const startedAt = message.startedAt ?? message.createdAt;
     const endedAt = message.finishedAt ?? (!isLive ? Date.now() : null);
     const elapsedMs = isLive
@@ -1057,8 +1098,11 @@ export function AskPage() {
       Boolean(message.error || message.finishedAt) ||
       (!isLive && hasReply);
 
-    const showReply = hasReply || Boolean(message.error);
+    const showReply = hasReply || hasError;
     const showDivider = showWorkSummary && showReply;
+    const errorText = message.error?.trim() || "";
+    const contentLooksLikeError =
+      hasError && message.content.trim() === errorText;
 
     return (
       <div className="flex w-full max-w-[92%] flex-col gap-3">
@@ -1073,12 +1117,14 @@ export function AskPage() {
 
         {showDivider ? <div className="border-t border-border/70" /> : null}
 
-        {message.content.trim() ? (
+        {message.content.trim() && !contentLooksLikeError ? (
           <AssistantMarkdown content={message.content} />
         ) : null}
 
-        {message.error ? (
-          <p className="text-xs text-destructive">{message.error}</p>
+        {hasError ? (
+          <div className="border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
+            {errorText}
+          </div>
         ) : null}
       </div>
     );

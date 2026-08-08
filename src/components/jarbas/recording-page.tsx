@@ -27,10 +27,11 @@ function formatElapsed(totalSeconds: number) {
 type SessionRedactPhase = "idle" | "redacting" | "success" | "error";
 
 export function RecordingPage() {
-  const { recording, setRecording } = useRecordingStatus();
+  const { recording, setRecording, setStatusSyncPaused } = useRecordingStatus();
   const [elapsed, setElapsed] = useState(0);
   const [lastSession, setLastSession] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sessionRedactPhase, setSessionRedactPhase] =
     useState<SessionRedactPhase>("idle");
@@ -79,6 +80,7 @@ export function RecordingPage() {
 
   async function startRecording() {
     setBusy(true);
+    setStopping(false);
     setError(null);
     setSessionRedactPhase("idle");
     setSessionRedactError(null);
@@ -93,6 +95,7 @@ export function RecordingPage() {
       await screenpipe.start(JARBAS_CAPTURE_START);
       setElapsed(0);
       setRecording(true);
+      setStatusSyncPaused(false);
     } catch (caught) {
       setError(captureErrorMessage(caught));
       setRecording(false);
@@ -102,14 +105,37 @@ export function RecordingPage() {
   }
 
   async function endRecording() {
+    if (busy || stopping) return;
     setBusy(true);
+    setStopping(true);
     setError(null);
     setSessionRedactPhase("idle");
     setSessionRedactError(null);
+    // Pause status polls + flip UI immediately so End learning never looks stuck
+    // while the bridge finalizes the MP4 (can take several seconds).
+    setStatusSyncPaused(true);
+    setRecording(false);
+
+    let stoppedOk = false;
     try {
       await screenpipe.stop();
-      setRecording(false);
+      stoppedOk = true;
+    } catch (caught) {
+      // Force-dispose even when stop RPC fails/times out.
+      try {
+        await screenpipe.dispose();
+        stoppedOk = true;
+      } catch {
+        setError(captureErrorMessage(caught));
+        setRecording(true);
+        setStatusSyncPaused(false);
+        setStopping(false);
+        setBusy(false);
+        return;
+      }
+    }
 
+    try {
       const session = await getLastCaptureSession();
       if (session) {
         setLastSession(formatLastSessionLabel(session));
@@ -125,7 +151,7 @@ export function RecordingPage() {
         autoRedact = true;
       }
 
-      if (!autoRedact) {
+      if (!autoRedact || !stoppedOk) {
         return;
       }
 
@@ -146,6 +172,7 @@ export function RecordingPage() {
 
       setSessionRedactPhase("redacting");
       setBusy(false);
+      setStopping(false);
       try {
         await redactJarbasCapture({
           startDate: toInputDate(started),
@@ -156,9 +183,9 @@ export function RecordingPage() {
         setSessionRedactPhase("error");
         setSessionRedactError(captureErrorMessage(caught));
       }
-    } catch (caught) {
-      setError(captureErrorMessage(caught));
     } finally {
+      setStatusSyncPaused(false);
+      setStopping(false);
       setBusy(false);
     }
   }
@@ -179,13 +206,17 @@ export function RecordingPage() {
             <div>
               <p className="label-caps text-muted-foreground">Session</p>
               <p className="mt-1 text-base font-semibold tracking-tight text-foreground">
-                {recording ? "Learning how you work" : "Ready to start"}
+                {stopping
+                  ? "Stopping capture…"
+                  : recording
+                    ? "Learning how you work"
+                    : "Ready to start"}
               </p>
             </div>
             <div
               className={cn(
                 "inline-flex items-center gap-2 border px-2.5 py-1 text-xs font-medium",
-                recording
+                recording || stopping
                   ? "border-destructive/30 bg-destructive/10 text-destructive"
                   : "border-border bg-muted text-muted-foreground",
               )}
@@ -193,10 +224,12 @@ export function RecordingPage() {
               <span
                 className={cn(
                   "size-2",
-                  recording ? "animate-pulse bg-destructive" : "bg-muted-foreground/50",
+                  recording && !stopping
+                    ? "animate-pulse bg-destructive"
+                    : "bg-muted-foreground/50",
                 )}
               />
-              {recording ? "Live" : "Idle"}
+              {stopping ? "Stopping" : recording ? "Live" : "Idle"}
             </div>
           </div>
         </div>
@@ -209,7 +242,19 @@ export function RecordingPage() {
             <p className="mt-4 max-w-md text-center text-sm text-destructive">{error}</p>
           ) : null}
           <div className="mt-8 flex w-full max-w-md flex-col gap-3 sm:flex-row sm:justify-center">
-            {!recording ? (
+            {recording || stopping ? (
+              <Button
+                type="button"
+                size="lg"
+                variant="outline"
+                onClick={() => void endRecording()}
+                disabled={busy || stopping}
+                className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Square className="size-3.5 fill-current" />
+                {stopping || busy ? "Stopping…" : "End learning"}
+              </Button>
+            ) : (
               <Button
                 type="button"
                 size="lg"
@@ -219,18 +264,6 @@ export function RecordingPage() {
               >
                 <Circle className="size-3.5 fill-current" />
                 {busy ? "Starting…" : "Start learning"}
-              </Button>
-            ) : (
-              <Button
-                type="button"
-                size="lg"
-                variant="outline"
-                onClick={() => void endRecording()}
-                disabled={busy}
-                className="rounded-none border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-              >
-                <Square className="size-3.5 fill-current" />
-                {busy ? "Stopping…" : "End learning"}
               </Button>
             )}
           </div>

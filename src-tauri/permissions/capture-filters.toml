@@ -1,0 +1,9 @@
+[[permission]]
+identifier = "allow-get-capture-filters"
+description = "Allows reading ignored app/window and URL capture filters."
+commands.allow = ["get_capture_filters"]
+
+[[permission]]
+identifier = "allow-set-capture-filters"
+description = "Allows updating ignored app/window and URL capture filters."
+commands.allow = ["set_capture_filters"]

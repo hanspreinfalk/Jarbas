@@ -139,6 +139,9 @@ const SIMPLE_ICONS_BY_NAME: Record<string, string> = {
 
   // Messaging / social
   signal: "signal",
+  messages: "imessage",
+  imessage: "imessage",
+  "apple messages": "imessage",
   messenger: "messenger",
   facebook: "facebook",
   instagram: "instagram",
@@ -224,8 +227,12 @@ function normalizeAppName(name: string) {
 }
 
 export function resolveAppLogo(name: string): AppLogo {
-  const key = normalizeAppName(name);
-  const fallback = name.trim().slice(0, 1).toUpperCase() || "?";
+  // Capture filters may use `App::Title` — resolve logo from the app side.
+  const logoKeySource = name.includes("::")
+    ? name.split("::")[0]?.trim() || name
+    : name;
+  const key = normalizeAppName(logoKeySource);
+  const fallback = logoKeySource.trim().slice(0, 1).toUpperCase() || "?";
 
   const localLogo = LOCAL_LOGO_BY_NAME[key];
   if (localLogo) {

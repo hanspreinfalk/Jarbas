@@ -147,6 +147,11 @@ impl JarbasPaths {
         Self::root().join("redaction.json")
     }
 
+    /// Ignored apps/windows/URLs for capture (Screenpipe privacy filters).
+    pub fn capture_filters() -> PathBuf {
+        Self::root().join("capture-filters.json")
+    }
+
     /// Screenpipe paired accessibility SQLite (`db.sqlite`) + snapshot `data/`.
     pub fn capture_dir() -> PathBuf {
         Self::root()

@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -12,6 +13,8 @@ import { screenpipe } from "@/lib/screenpipe";
 type RecordingStatusContextValue = {
   recording: boolean;
   setRecording: (recording: boolean) => void;
+  /** While true, status polls will not overwrite local recording state. */
+  setStatusSyncPaused: (paused: boolean) => void;
   refreshRecordingStatus: () => Promise<void>;
 };
 
@@ -19,12 +22,23 @@ const RecordingStatusContext =
   createContext<RecordingStatusContextValue | null>(null);
 
 export function RecordingStatusProvider({ children }: { children: ReactNode }) {
-  const [recording, setRecording] = useState(false);
+  const [recording, setRecordingState] = useState(false);
+  const statusSyncPausedRef = useRef(false);
+
+  const setRecording = useCallback((next: boolean) => {
+    setRecordingState(next);
+  }, []);
+
+  const setStatusSyncPaused = useCallback((paused: boolean) => {
+    statusSyncPausedRef.current = paused;
+  }, []);
 
   const refreshRecordingStatus = useCallback(async () => {
+    if (statusSyncPausedRef.current) return;
     try {
       const status = await screenpipe.status();
-      setRecording(Boolean(status.recording));
+      if (statusSyncPausedRef.current) return;
+      setRecordingState(Boolean(status.recording));
     } catch {
       // Bridge may not be up yet; keep last known state.
     }
@@ -33,9 +47,11 @@ export function RecordingStatusProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     let alive = true;
     void (async () => {
+      if (statusSyncPausedRef.current) return;
       try {
         const status = await screenpipe.status();
-        if (alive) setRecording(Boolean(status.recording));
+        if (!alive || statusSyncPausedRef.current) return;
+        setRecordingState(Boolean(status.recording));
       } catch {
         // Idle until the bridge is ready.
       }
@@ -52,8 +68,13 @@ export function RecordingStatusProvider({ children }: { children: ReactNode }) {
   }, [refreshRecordingStatus]);
 
   const value = useMemo(
-    () => ({ recording, setRecording, refreshRecordingStatus }),
-    [recording, refreshRecordingStatus],
+    () => ({
+      recording,
+      setRecording,
+      setStatusSyncPaused,
+      refreshRecordingStatus,
+    }),
+    [recording, setRecording, setStatusSyncPaused, refreshRecordingStatus],
   );
 
   return (

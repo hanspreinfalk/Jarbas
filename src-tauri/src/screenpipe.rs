@@ -142,6 +142,7 @@ impl CaptureHost {
         if !map.contains_key("filenamePrefix") && !map.contains_key("filename") {
             map.insert("filenamePrefix".into(), Value::String("jarbas".into()));
         }
+        crate::capture_filters::merge_into_start_options(&mut map);
 
         Value::Object(map)
     }
@@ -507,11 +508,23 @@ pub async fn screenpipe_stop<R: Runtime>(
     state: State<'_, Arc<CaptureHost>>,
 ) -> Result<Value, String> {
     // Stop capture, dispose the session, then kill the Node child so macOS
-    // clears the purple ScreenCaptureKit indicator.
+    // clears the purple ScreenCaptureKit indicator. Always dispose+kill even
+    // if stop times out so the UI can recover.
     let status = state.rpc(&app, "stop", json!({})).await;
     let _ = state.rpc(&app, "dispose", json!({})).await;
     state.kill_bridge().await;
-    status
+    // Local enforcement: SDK URL/app filters can fail open without Accessibility.
+    crate::capture_filters::purge_ignored_after_stop();
+    match status {
+        Ok(value) => Ok(value),
+        Err(error) => {
+            // Bridge is dead; treat as stopped so the client can leave Live.
+            Ok(json!({
+                "recording": false,
+                "warning": error,
+            }))
+        }
+    }
 }
 
 #[tauri::command]

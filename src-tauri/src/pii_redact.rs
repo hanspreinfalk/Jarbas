@@ -5,7 +5,7 @@ use crate::paths::JarbasPaths;
 use regex::Regex;
 use rusqlite::{Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::fs;
 use std::sync::LazyLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
@@ -180,6 +180,9 @@ struct RedactionHistory {
     /// When true, End Recording auto-redacts the session just captured.
     #[serde(default = "default_true")]
     auto_redact_on_stop: bool,
+    /// PII / secret category tags enabled for scrubbing (EMAIL, PASSWORD, …).
+    #[serde(default = "default_enabled_categories")]
+    enabled_categories: Vec<String>,
 }
 
 impl Default for RedactionHistory {
@@ -187,6 +190,7 @@ impl Default for RedactionHistory {
         Self {
             runs: Vec::new(),
             auto_redact_on_stop: true,
+            enabled_categories: default_enabled_categories(),
         }
     }
 }
@@ -195,42 +199,113 @@ fn default_true() -> bool {
     true
 }
 
+/// High-signal secrets only — safest default (fewest false positives).
+/// Keep in sync with `REDACTION_SECRETS_TAGS` in `src/lib/redaction-categories.ts`.
+fn default_enabled_categories() -> Vec<String> {
+    [
+        "PASSWORD",
+        "PASSWORD_DOTS",
+        "PASSWORD_FIELD",
+        "PRIVATE_KEY",
+        "CONNECTION_STRING",
+        "URL_WITH_CREDENTIALS",
+        "JWT_TOKEN",
+        "STRIPE_KEY",
+        "ANTHROPIC_KEY",
+        "OPENAI_KEY",
+        "GOOGLE_API_KEY",
+        "HUGGINGFACE_TOKEN",
+        "GITHUB_TOKEN",
+        "CLOUDFLARE_TOKEN",
+        "SUPABASE_KEY",
+        "SLACK_TOKEN",
+        "DISCORD_TOKEN",
+        "GITLAB_TOKEN",
+        "NPM_TOKEN",
+        "PYPI_TOKEN",
+        "DIGITALOCEAN_TOKEN",
+        "TELEGRAM_TOKEN",
+        "TWILIO_KEY",
+        "SENDGRID_KEY",
+        "MAILCHIMP_KEY",
+        "AWS_KEY",
+        "AWS_SECRET",
+        "AZURE_KEY",
+        "SEED_PHRASE",
+        "BACKUP_CODE",
+    ]
+    .into_iter()
+    .map(str::to_string)
+    .collect()
+}
+
+fn all_category_tags() -> Vec<String> {
+    let mut tags: Vec<String> = PII_RULES
+        .iter()
+        .map(|(_, tag)| (*tag).to_string())
+        .collect();
+    tags.push("PASSWORD".into());
+    tags.sort();
+    tags.dedup();
+    tags
+}
+
 const MAX_REDACTION_RUNS: usize = 100;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RedactionPrefs {
     auto_redact_on_stop: bool,
+    #[serde(default = "default_enabled_categories")]
+    enabled_categories: Vec<String>,
 }
 
 /// Scrub emails, keys, passwords, cards, and similar patterns from stored capture text.
 ///
 /// `start_date` / `end_date` are inclusive local calendar dates (`YYYY-MM-DD`).
+/// When `dry_run` is true, returns the same count shape without writing or recording history.
 /// Heavy work runs on a blocking thread so the UI can keep painting a loader.
 #[tauri::command]
 pub async fn redact_jarbas_capture(
     start_date: String,
     end_date: String,
+    dry_run: Option<bool>,
 ) -> Result<RedactResult, String> {
     let start_date = start_date.trim().to_string();
     let end_date = end_date.trim().to_string();
     validate_ymd_range(&start_date, &end_date)?;
+    let dry_run = dry_run.unwrap_or(false);
 
-    tokio::task::spawn_blocking(move || redact_jarbas_capture_blocking(start_date, end_date))
-        .await
-        .map_err(|e| format!("Redaction task failed: {e}"))?
+    tokio::task::spawn_blocking(move || {
+        redact_jarbas_capture_blocking(start_date, end_date, dry_run)
+    })
+    .await
+    .map_err(|e| format!("Redaction task failed: {e}"))?
 }
 
 fn redact_jarbas_capture_blocking(
     start_date: String,
     end_date: String,
+    dry_run: bool,
 ) -> Result<RedactResult, String> {
     let started_at = now_rfc3339();
     let started = Instant::now();
+    let enabled = load_enabled_category_set()?;
     let db_path = JarbasPaths::root().join("db.sqlite");
     if !db_path.is_file() {
-        let result = empty_result(&start_date, &end_date, started_at, "No local capture database found yet.");
-        append_redaction_run(&result)?;
+        let result = empty_result(
+            &start_date,
+            &end_date,
+            started_at,
+            if dry_run {
+                "Preview: no local capture database found yet."
+            } else {
+                "No local capture database found yet."
+            },
+        );
+        if !dry_run {
+            append_redaction_run(&result)?;
+        }
         return Ok(result);
     }
 
@@ -261,6 +336,8 @@ fn redact_jarbas_capture_blocking(
         "id",
         &["full_text", "accessibility_text"],
         &format!("FROM frames WHERE {}", range.where_sql("timestamp")),
+        dry_run,
+        &enabled,
         &mut scanned,
         &mut updated,
         &mut counts,
@@ -279,6 +356,8 @@ fn redact_jarbas_capture_blocking(
             "FROM ocr_text o INNER JOIN frames f ON f.id = o.frame_id WHERE {}",
             range.where_sql("f.timestamp")
         ),
+        dry_run,
+        &enabled,
         &mut scanned,
         &mut updated,
         &mut counts,
@@ -303,6 +382,8 @@ fn redact_jarbas_capture_blocking(
             "element_description",
         ],
         &format!("FROM ui_events WHERE {}", range.where_sql("timestamp")),
+        dry_run,
+        &enabled,
         &mut scanned,
         &mut updated,
         &mut counts,
@@ -320,6 +401,8 @@ fn redact_jarbas_capture_blocking(
             "FROM elements e INNER JOIN frames f ON f.id = e.frame_id WHERE {}",
             range.where_sql("f.timestamp")
         ),
+        dry_run,
+        &enabled,
         &mut scanned,
         &mut updated,
         &mut counts,
@@ -337,6 +420,8 @@ fn redact_jarbas_capture_blocking(
             "FROM audio_transcriptions WHERE {}",
             range.where_sql("timestamp")
         ),
+        dry_run,
+        &enabled,
         &mut scanned,
         &mut updated,
         &mut counts,
@@ -345,7 +430,8 @@ fn redact_jarbas_capture_blocking(
     // Optional memories text if the table exists with a content-like column.
     if table_exists(&tx, "memories")? {
         let content_col = first_existing_column(&tx, "memories", &["content", "text", "body"])?;
-        let time_col = first_existing_column(&tx, "memories", &["created_at", "updated_at", "timestamp"])?;
+        let time_col =
+            first_existing_column(&tx, "memories", &["created_at", "updated_at", "timestamp"])?;
         if let (Some(col), Some(time)) = (content_col, time_col) {
             redact_query(
                 &tx,
@@ -356,6 +442,8 @@ fn redact_jarbas_capture_blocking(
                 "id",
                 &[col.as_str()],
                 &format!("FROM memories WHERE {}", range.where_sql(&time)),
+                dry_run,
+                &enabled,
                 &mut scanned,
                 &mut updated,
                 &mut counts,
@@ -363,14 +451,30 @@ fn redact_jarbas_capture_blocking(
         }
     }
 
-    tx.commit()
-        .map_err(|e| format!("Could not commit redaction: {e}"))?;
+    if dry_run {
+        // Discard any accidental writes; dry-run must not mutate the DB.
+        tx.rollback()
+            .map_err(|e| format!("Could not roll back dry-run redaction: {e}"))?;
+    } else {
+        tx.commit()
+            .map_err(|e| format!("Could not commit redaction: {e}"))?;
+    }
 
     let total_matches: u64 = counts.values().copied().sum();
     let duration_ms = started.elapsed().as_millis() as u64;
     let completed_at = now_rfc3339();
 
-    let message = if updated == 0 {
+    let message = if dry_run {
+        if updated == 0 {
+            format!(
+                "Preview: scanned {scanned} text fields from {start_date} → {end_date}. Nothing would be redacted."
+            )
+        } else {
+            format!(
+                "Preview: would redact {total_matches} sensitive matches across {updated} of {scanned} fields ({start_date} → {end_date})."
+            )
+        }
+    } else if updated == 0 {
         format!(
             "Scanned {scanned} text fields from {start_date} → {end_date}. Nothing needed redacting."
         )
@@ -393,7 +497,9 @@ fn redact_jarbas_capture_blocking(
         total_matches,
         counts,
     };
-    append_redaction_run(&result)?;
+    if !dry_run {
+        append_redaction_run(&result)?;
+    }
     Ok(result)
 }
 
@@ -468,9 +574,7 @@ pub fn get_redaction_history() -> Result<Vec<RedactResult>, String> {
 #[tauri::command]
 pub fn get_redaction_prefs() -> Result<RedactionPrefs, String> {
     let history = load_redaction_history()?;
-    Ok(RedactionPrefs {
-        auto_redact_on_stop: history.auto_redact_on_stop,
-    })
+    Ok(prefs_from_history(&history))
 }
 
 /// Persist whether End Recording should auto-redact the just-finished session.
@@ -479,9 +583,41 @@ pub fn set_auto_redact_on_stop(enabled: bool) -> Result<RedactionPrefs, String> 
     let mut history = load_redaction_history()?;
     history.auto_redact_on_stop = enabled;
     save_redaction_history(&history)?;
-    Ok(RedactionPrefs {
+    Ok(prefs_from_history(&history))
+}
+
+/// Persist which PII / secret category tags are enabled for scrubbing.
+#[tauri::command]
+pub fn set_enabled_redaction_categories(
+    categories: Vec<String>,
+) -> Result<RedactionPrefs, String> {
+    let known: HashSet<String> = all_category_tags().into_iter().collect();
+    let mut enabled: Vec<String> = categories
+        .into_iter()
+        .map(|c| c.trim().to_string())
+        .filter(|c| !c.is_empty() && known.contains(c))
+        .collect();
+    enabled.sort();
+    enabled.dedup();
+
+    let mut history = load_redaction_history()?;
+    history.enabled_categories = enabled;
+    save_redaction_history(&history)?;
+    Ok(prefs_from_history(&history))
+}
+
+fn prefs_from_history(history: &RedactionHistory) -> RedactionPrefs {
+    RedactionPrefs {
         auto_redact_on_stop: history.auto_redact_on_stop,
-    })
+        enabled_categories: history.enabled_categories.clone(),
+    }
+}
+
+fn load_enabled_category_set() -> Result<HashSet<String>, String> {
+    Ok(prefs_from_history(&load_redaction_history()?)
+        .enabled_categories
+        .into_iter()
+        .collect())
 }
 
 fn append_redaction_run(result: &RedactResult) -> Result<(), String> {
@@ -531,6 +667,7 @@ fn load_redaction_history() -> Result<RedactionHistory, String> {
         return Ok(RedactionHistory {
             runs: vec![run],
             auto_redact_on_stop: true,
+            enabled_categories: default_enabled_categories(),
         });
     }
 
@@ -543,6 +680,14 @@ fn normalize_history(mut history: RedactionHistory) -> RedactionHistory {
             run.id = new_run_id(&run.completed_at);
         }
     }
+    let known: HashSet<String> = all_category_tags().into_iter().collect();
+    history.enabled_categories = history
+        .enabled_categories
+        .into_iter()
+        .filter(|tag| known.contains(tag))
+        .collect();
+    history.enabled_categories.sort();
+    history.enabled_categories.dedup();
     history
 }
 
@@ -607,6 +752,8 @@ fn redact_query(
     id_expr: &str,
     text_exprs: &[&str],
     from_where: &str,
+    dry_run: bool,
+    enabled: &HashSet<String>,
     scanned: &mut u64,
     updated: &mut u64,
     counts: &mut BTreeMap<String, u64>,
@@ -624,6 +771,8 @@ fn redact_query(
     if existing.is_empty() || !column_exists(conn, table, id_col)? {
         return Ok(());
     }
+
+    let from_where = with_unredacted_filter(conn, table, id_expr, redacted_at_col, from_where)?;
 
     let projected: Vec<&str> = std::iter::once(id_expr)
         .chain(existing.iter().map(|(idx, _)| text_exprs[*idx]))
@@ -661,7 +810,7 @@ fn redact_query(
                 continue;
             }
             *scanned += 1;
-            let (redacted, field_counts) = remove_pii_with_counts(original);
+            let (redacted, field_counts) = remove_pii_with_counts(original, enabled);
             if redacted != *original {
                 for (tag, n) in field_counts {
                     *counts.entry(tag).or_insert(0) += n;
@@ -674,6 +823,13 @@ fn redact_query(
         }
     }
     drop(stmt);
+
+    if dry_run {
+        for (_id, sets) in pending {
+            *updated += sets.len() as u64;
+        }
+        return Ok(());
+    }
 
     let now = now_unix_secs();
     let stamp_redacted_at = redacted_at_col
@@ -697,26 +853,66 @@ fn redact_query(
     Ok(())
 }
 
-#[cfg(test)]
-fn remove_pii(text: &str) -> String {
-    remove_pii_with_counts(text).0
+/// Skip rows already stamped with `redacted_at` when that column exists.
+fn with_unredacted_filter(
+    conn: &Connection,
+    table: &str,
+    id_expr: &str,
+    redacted_at_col: Option<&str>,
+    from_where: &str,
+) -> Result<String, String> {
+    let Some(col) = redacted_at_col else {
+        return Ok(from_where.to_string());
+    };
+    if !column_exists(conn, table, col)? {
+        return Ok(from_where.to_string());
+    }
+    let qualified = if let Some((alias, _)) = id_expr.split_once('.') {
+        format!("{alias}.{col}")
+    } else {
+        col.to_string()
+    };
+    Ok(format!("{from_where} AND {qualified} IS NULL"))
 }
 
-fn remove_pii_with_counts(text: &str) -> (String, BTreeMap<String, u64>) {
+#[cfg(test)]
+fn remove_pii(text: &str) -> String {
+    remove_pii_with_counts(text, &all_categories_set()).0
+}
+
+fn all_categories_set() -> HashSet<String> {
+    all_category_tags().into_iter().collect()
+}
+
+fn secrets_categories_set() -> HashSet<String> {
+    default_enabled_categories().into_iter().collect()
+}
+
+fn remove_pii_with_counts(
+    text: &str,
+    enabled: &HashSet<String>,
+) -> (String, BTreeMap<String, u64>) {
     let mut counts: BTreeMap<String, u64> = BTreeMap::new();
 
     // Preserve password/pin labels; redact only the value.
-    let password_hits = PASSWORD_CONTEXT.find_iter(text).count() as u64;
-    let mut sanitized = if password_hits > 0 {
-        *counts.entry("PASSWORD".into()).or_insert(0) += password_hits;
-        PASSWORD_CONTEXT
-            .replace_all(text, "$1[PASSWORD]")
-            .into_owned()
+    let mut sanitized = if enabled.contains("PASSWORD") {
+        let password_hits = PASSWORD_CONTEXT.find_iter(text).count() as u64;
+        if password_hits > 0 {
+            *counts.entry("PASSWORD".into()).or_insert(0) += password_hits;
+            PASSWORD_CONTEXT
+                .replace_all(text, "$1[PASSWORD]")
+                .into_owned()
+        } else {
+            text.to_string()
+        }
     } else {
         text.to_string()
     };
 
     for (pattern, tag) in PII_RULES.iter() {
+        if !enabled.contains(*tag) {
+            continue;
+        }
         let hits = pattern.find_iter(&sanitized).count() as u64;
         if hits == 0 {
             continue;
@@ -787,7 +983,10 @@ fn now_unix_secs() -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{remove_pii, remove_pii_with_counts};
+    use super::{
+        all_categories_set, remove_pii, remove_pii_with_counts, secrets_categories_set,
+    };
+    use std::collections::HashSet;
 
     #[test]
     fn redacts_email_and_key() {
@@ -809,8 +1008,49 @@ mod tests {
     #[test]
     fn counts_matches_by_category() {
         let input = "ada@example.com and bob@example.com password: secret";
-        let (_out, counts) = remove_pii_with_counts(input);
+        let (_out, counts) = remove_pii_with_counts(input, &all_categories_set());
         assert_eq!(counts.get("EMAIL"), Some(&2));
         assert_eq!(counts.get("PASSWORD"), Some(&1));
+    }
+
+    #[test]
+    fn respects_enabled_categories() {
+        let input = "ada@example.com password: secret";
+        let only_email: HashSet<String> = ["EMAIL".into()].into_iter().collect();
+        let (out, counts) = remove_pii_with_counts(input, &only_email);
+        assert!(out.contains("[EMAIL]"));
+        assert!(out.contains("secret"));
+        assert_eq!(counts.get("EMAIL"), Some(&1));
+        assert!(counts.get("PASSWORD").is_none());
+    }
+
+    #[test]
+    fn secrets_tier_skips_email_pii() {
+        let input = "ada@example.com password: hunter2";
+        let (out, counts) = remove_pii_with_counts(input, &secrets_categories_set());
+        assert!(out.contains("ada@example.com"));
+        assert!(out.contains("[PASSWORD]"));
+        assert!(counts.get("EMAIL").is_none());
+        assert_eq!(counts.get("PASSWORD"), Some(&1));
+    }
+
+    #[test]
+    fn secrets_tier_avoids_broad_api_key_false_positives() {
+        // Looks like a product SKU / identifier, not a live secret.
+        let input = "Order key-shipping-label-2024 for customer";
+        let (out, counts) = remove_pii_with_counts(input, &secrets_categories_set());
+        assert_eq!(out, input);
+        assert!(counts.get("API_KEY").is_none());
+        assert!(counts.get("ENV_SECRET").is_none());
+    }
+
+    #[test]
+    fn aggressive_tier_can_match_broad_api_key_pattern() {
+        let input = "token_abcdefghijklmnopqrstuvwxyz";
+        let (out, counts) = remove_pii_with_counts(input, &all_categories_set());
+        assert!(
+            counts.get("API_KEY").is_some() || out.contains("[API_KEY]"),
+            "aggressive should allow broad token patterns: {out} {counts:?}"
+        );
     }
 }

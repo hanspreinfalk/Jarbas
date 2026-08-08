@@ -54,6 +54,9 @@
     "allow-get-last-redaction",
     "allow-get-redaction-history",
     "allow-get-redaction-prefs",
-    "allow-set-auto-redact-on-stop"
+    "allow-set-auto-redact-on-stop",
+    "allow-set-enabled-redaction-categories",
+    "allow-get-capture-filters",
+    "allow-set-capture-filters"
   ]
 }

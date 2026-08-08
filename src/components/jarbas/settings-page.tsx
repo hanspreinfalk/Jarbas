@@ -8,10 +8,12 @@ import {
   ExternalLink,
   History,
   Loader2,
+  Plus,
   RefreshCw,
   RotateCcw,
   Shield,
   Trash2,
+  X,
 } from "lucide-react";
 import { api } from "@convex/_generated/api";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { ProviderLogo } from "@/components/jarbas/provider-logo";
 import { ThemeToggle } from "@/components/jarbas/theme-toggle";
+import { AppBadge, AppLogoMark } from "@/components/jarbas/app-badge";
 import {
   clearLlmApiKey,
   getLlmSettings,
@@ -50,16 +53,30 @@ import {
 import {
   formatBytes,
   formatFrameCount,
+  getCaptureFilters,
   getCaptureStorageStats,
   getRedactionPrefs,
   redactJarbasCapture,
   resetJarbasData,
   screenpipe,
   setAutoRedactOnStop,
+  setCaptureFilters,
+  setEnabledRedactionCategories,
+  type CaptureFilters,
   type CaptureStorageStats,
   type RedactCaptureResult,
   type ResetJarbasResult,
 } from "@/lib/screenpipe";
+import {
+  ALL_REDACTION_TAGS,
+  filterCategoryGroups,
+  matchRedactionLadder,
+  REDACTION_LADDER_PRESETS,
+  REDACTION_SECRETS_TAGS,
+  tagsForLadder,
+  type RedactionLadderId,
+} from "@/lib/redaction-categories";
+import { redactionCountRows } from "@/lib/redaction-ui";
 import type { AppTabId } from "@/lib/app-tabs";
 import { cn } from "@/lib/utils";
 import {
@@ -264,6 +281,16 @@ export function SettingsPage({
   );
   const [resetting, setResetting] = useState(false);
   const [redacting, setRedacting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [redactPreview, setRedactPreview] = useState<RedactCaptureResult | null>(
+    null,
+  );
+  const [enabledCategories, setEnabledCategories] = useState<string[]>([
+    ...REDACTION_SECRETS_TAGS,
+  ]);
+  const [categoriesBusy, setCategoriesBusy] = useState(false);
+  const [advancedCategoriesOpen, setAdvancedCategoriesOpen] = useState(false);
+  const [categoryQuery, setCategoryQuery] = useState("");
   const [replayingOnboarding, setReplayingOnboarding] = useState(false);
   const [onboardingError, setOnboardingError] = useState<string | null>(null);
   const [resetError, setResetError] = useState<string | null>(null);
@@ -286,6 +313,13 @@ export function SettingsPage({
   const [accessibilityInfo, setAccessibilityInfo] =
     useState<AccessibilityPermissionStatus | null>(null);
   const [permissionsError, setPermissionsError] = useState<string | null>(null);
+  const [ignoredWindows, setIgnoredWindows] = useState<string[]>([]);
+  const [ignoredUrls, setIgnoredUrls] = useState<string[]>([]);
+  const [ignoreDraft, setIgnoreDraft] = useState("");
+  const [ignoreUrlDraft, setIgnoreUrlDraft] = useState("");
+  const [filtersBusy, setFiltersBusy] = useState(false);
+  const [filtersError, setFiltersError] = useState<string | null>(null);
+  const [filtersNotice, setFiltersNotice] = useState<string | null>(null);
 
   const refreshStorage = useCallback(async () => {
     try {
@@ -299,10 +333,92 @@ export function SettingsPage({
     try {
       const prefs = await getRedactionPrefs();
       setAutoRedactOnStopState(prefs.autoRedactOnStop);
+      setEnabledCategories(
+        Array.isArray(prefs.enabledCategories)
+          ? prefs.enabledCategories
+          : [...REDACTION_SECRETS_TAGS],
+      );
     } catch {
       setAutoRedactOnStopState(true);
+      setEnabledCategories([...REDACTION_SECRETS_TAGS]);
     }
   }, []);
+
+  const refreshCaptureFilters = useCallback(async () => {
+    try {
+      const filters = await getCaptureFilters();
+      setIgnoredWindows(
+        Array.isArray(filters.ignoredWindows) ? filters.ignoredWindows : [],
+      );
+      setIgnoredUrls(
+        Array.isArray(filters.ignoredUrls) ? filters.ignoredUrls : [],
+      );
+    } catch {
+      setIgnoredWindows([]);
+      setIgnoredUrls([]);
+    }
+  }, []);
+
+  const persistCaptureFilters = useCallback(
+    async (next: CaptureFilters) => {
+      setFiltersBusy(true);
+      setFiltersError(null);
+      try {
+        const saved = await setCaptureFilters(next);
+        setIgnoredWindows(saved.ignoredWindows);
+        setIgnoredUrls(saved.ignoredUrls);
+        setFiltersNotice("Saved. Matching past captures were removed.");
+      } catch {
+        setFiltersError("Could not save ignore list.");
+        await refreshCaptureFilters();
+      } finally {
+        setFiltersBusy(false);
+      }
+    },
+    [refreshCaptureFilters],
+  );
+
+  async function addIgnoredWindow(raw: string) {
+    const value = raw.trim();
+    if (!value) return;
+    if (ignoredWindows.some((item) => item.toLowerCase() === value.toLowerCase())) {
+      setIgnoreDraft("");
+      return;
+    }
+    setIgnoreDraft("");
+    await persistCaptureFilters({
+      ignoredWindows: [...ignoredWindows, value],
+      ignoredUrls,
+    });
+  }
+
+  async function removeIgnoredWindow(value: string) {
+    await persistCaptureFilters({
+      ignoredWindows: ignoredWindows.filter((item) => item !== value),
+      ignoredUrls,
+    });
+  }
+
+  async function addIgnoredUrl(raw: string) {
+    const value = raw.trim();
+    if (!value) return;
+    if (ignoredUrls.some((item) => item.toLowerCase() === value.toLowerCase())) {
+      setIgnoreUrlDraft("");
+      return;
+    }
+    setIgnoreUrlDraft("");
+    await persistCaptureFilters({
+      ignoredWindows,
+      ignoredUrls: [...ignoredUrls, value],
+    });
+  }
+
+  async function removeIgnoredUrl(value: string) {
+    await persistCaptureFilters({
+      ignoredWindows,
+      ignoredUrls: ignoredUrls.filter((item) => item !== value),
+    });
+  }
 
   async function onAutoRedactToggle(enabled: boolean) {
     setAutoRedactBusy(true);
@@ -310,12 +426,60 @@ export function SettingsPage({
     try {
       const prefs = await setAutoRedactOnStop(enabled);
       setAutoRedactOnStopState(prefs.autoRedactOnStop);
+      if (Array.isArray(prefs.enabledCategories)) {
+        setEnabledCategories(prefs.enabledCategories);
+      }
     } catch {
       setAutoRedactOnStopState(!enabled);
       setRedactError("Could not save auto-redact preference.");
     } finally {
       setAutoRedactBusy(false);
     }
+  }
+
+  async function persistEnabledCategories(next: string[]) {
+    setCategoriesBusy(true);
+    setEnabledCategories(next);
+    setRedactPreview(null);
+    try {
+      const prefs = await setEnabledRedactionCategories(next);
+      setEnabledCategories(prefs.enabledCategories ?? next);
+    } catch {
+      setRedactError("Could not save redaction categories.");
+      await refreshRedactionPrefs();
+    } finally {
+      setCategoriesBusy(false);
+    }
+  }
+
+  function applyLadder(id: Exclude<RedactionLadderId, "custom">) {
+    if (categoriesBusy || redacting || previewing) return;
+    void persistEnabledCategories(tagsForLadder(id));
+  }
+
+  function toggleRedactionCategory(tag: string) {
+    if (categoriesBusy || redacting || previewing) return;
+    const enabled = new Set(enabledCategories);
+    if (enabled.has(tag)) {
+      enabled.delete(tag);
+    } else {
+      enabled.add(tag);
+    }
+    void persistEnabledCategories(
+      ALL_REDACTION_TAGS.filter((item) => enabled.has(item)),
+    );
+  }
+
+  function toggleCategoryGroup(tags: readonly string[], enable: boolean) {
+    if (categoriesBusy || redacting || previewing) return;
+    const enabled = new Set(enabledCategories);
+    for (const tag of tags) {
+      if (enable) enabled.add(tag);
+      else enabled.delete(tag);
+    }
+    void persistEnabledCategories(
+      ALL_REDACTION_TAGS.filter((item) => enabled.has(item)),
+    );
   }
 
   async function stopCaptureQuietly() {
@@ -386,41 +550,77 @@ export function SettingsPage({
     applyRedactPreset(DATE_RANGE_PRESETS[0]);
     setRedactError(null);
     setRedacting(false);
-  }, [redactOpen, applyRedactPreset]);
+    setPreviewing(false);
+    setRedactPreview(null);
+    setAdvancedCategoriesOpen(false);
+    setCategoryQuery("");
+    void refreshRedactionPrefs();
+  }, [redactOpen, applyRedactPreset, refreshRedactionPrefs]);
 
-  async function handleRedactCapture() {
+  async function runRedactionPass(dryRun: boolean) {
     if (
       redacting ||
+      previewing ||
       !redactStartDate ||
       !redactEndDate ||
       redactStartDate > redactEndDate
     ) {
       return;
     }
-    setRedacting(true);
+    if (dryRun) {
+      setPreviewing(true);
+    } else {
+      setRedacting(true);
+    }
     setRedactError(null);
     try {
       // Let React paint the loader before the heavy IPC call starts.
       await new Promise<void>((resolve) => {
         requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
       });
-      await stopCaptureQuietly();
+      if (!dryRun) {
+        await stopCaptureQuietly();
+      }
       const result: RedactCaptureResult = await redactJarbasCapture({
         startDate: redactStartDate,
         endDate: redactEndDate,
+        dryRun,
       });
-      setRedactOpen(false);
-      setRedactNotice(result.message);
-      await refreshStorage();
+      if (dryRun) {
+        setRedactPreview(result);
+      } else {
+        setRedactOpen(false);
+        setRedactPreview(null);
+        setRedactNotice(result.message);
+        await refreshStorage();
+      }
     } catch (error) {
       setRedactError(error instanceof Error ? error.message : String(error));
     } finally {
       setRedacting(false);
+      setPreviewing(false);
     }
   }
 
+  const redactBusy = redacting || previewing;
   const redactRangeValid = Boolean(
     redactStartDate && redactEndDate && redactStartDate <= redactEndDate,
+  );
+  const enabledCategorySet = useMemo(
+    () => new Set(enabledCategories),
+    [enabledCategories],
+  );
+  const activeLadder = useMemo(
+    () => matchRedactionLadder(enabledCategories),
+    [enabledCategories],
+  );
+  const filteredCategoryGroups = useMemo(
+    () => filterCategoryGroups(categoryQuery),
+    [categoryQuery],
+  );
+  const previewCountRows = useMemo(
+    () => redactionCountRows(redactPreview?.counts),
+    [redactPreview],
   );
 
   const refreshPermissions = useCallback(async () => {
@@ -464,6 +664,10 @@ export function SettingsPage({
   useEffect(() => {
     void refreshRedactionPrefs();
   }, [refreshRedactionPrefs]);
+
+  useEffect(() => {
+    void refreshCaptureFilters();
+  }, [refreshCaptureFilters]);
 
   useEffect(() => {
     let cancelled = false;
@@ -791,6 +995,145 @@ export function SettingsPage({
       </section>
 
       <section className="mt-8">
+        <p className="label-caps text-primary">Ignored apps</p>
+        <div className="mt-2 border border-border bg-card">
+          <div className="border-b border-border px-4 py-3">
+            <h2 className="text-base font-semibold tracking-tight text-foreground">
+              Don&apos;t capture while focused
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Jarbas pauses capture while these apps are in focus.
+            </p>
+          </div>
+
+          <div className="space-y-4 px-4 py-4">
+            <div>
+              <p className="label-caps text-muted-foreground">Desktop Apps</p>
+              {ignoredWindows.length > 0 ? (
+                <ul className="mt-2 flex flex-wrap gap-1.5">
+                  {ignoredWindows.map((item) => (
+                    <li key={item}>
+                      <AppBadge
+                        name={item}
+                        removeDisabled={filtersBusy}
+                        onRemove={() => {
+                          void removeIgnoredWindow(item);
+                        }}
+                      />
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <form
+                className="mt-2 flex flex-wrap items-center gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void addIgnoredWindow(ignoreDraft);
+                }}
+              >
+                <div className="relative w-56">
+                  {ignoreDraft.trim() ? (
+                    <span className="pointer-events-none absolute top-1/2 left-2.5 -translate-y-1/2">
+                      <AppLogoMark
+                        name={ignoreDraft.trim()}
+                        className="size-4"
+                      />
+                    </span>
+                  ) : null}
+                  <Input
+                    value={ignoreDraft}
+                    onChange={(event) => setIgnoreDraft(event.target.value)}
+                    placeholder="App name"
+                    disabled={filtersBusy}
+                    className={cn(
+                      "h-9 rounded-none",
+                      ignoreDraft.trim() ? "pl-9" : undefined,
+                    )}
+                    aria-label="App or window to ignore"
+                  />
+                </div>
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-none"
+                  disabled={filtersBusy || !ignoreDraft.trim()}
+                >
+                  <Plus className="size-3.5" />
+                  Add
+                </Button>
+              </form>
+            </div>
+
+            <div className="border-t border-border pt-4">
+              <p className="label-caps text-muted-foreground">URLs</p>
+              {ignoredUrls.length > 0 ? (
+                <ul className="mt-2 flex max-w-md flex-wrap gap-2">
+                  {ignoredUrls.map((item) => (
+                    <li
+                      key={item}
+                      className="inline-flex items-center gap-1 border border-border bg-background px-2 py-1 text-sm text-foreground"
+                    >
+                      <span className="max-w-[12rem] truncate">{item}</span>
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground"
+                        disabled={filtersBusy}
+                        aria-label={`Remove URL ${item}`}
+                        onClick={() => {
+                          void removeIgnoredUrl(item);
+                        }}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <form
+                className="mt-2 flex flex-wrap gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void addIgnoredUrl(ignoreUrlDraft);
+                }}
+              >
+                <Input
+                  value={ignoreUrlDraft}
+                  onChange={(event) => setIgnoreUrlDraft(event.target.value)}
+                  placeholder="chase.com"
+                  disabled={filtersBusy}
+                  className="h-9 w-56 rounded-none"
+                  aria-label="URL domain to ignore"
+                />
+                <Button
+                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-none"
+                  disabled={filtersBusy || !ignoreUrlDraft.trim()}
+                >
+                  <Plus className="size-3.5" />
+                  Add
+                </Button>
+              </form>
+            </div>
+          </div>
+
+          {filtersNotice ? (
+            <p className="border-t border-border px-4 py-3 text-sm text-foreground">
+              {filtersNotice}
+            </p>
+          ) : null}
+          {filtersError ? (
+            <p className="border-t border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+              {filtersError}
+            </p>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="mt-8">
         <p className="label-caps text-primary">Redaction</p>
         <div className="mt-2 border border-border bg-card">
           <div className="flex items-start justify-between gap-4 px-4 py-3">
@@ -799,7 +1142,7 @@ export function SettingsPage({
                 Auto-redact
               </h2>
               <p className="mt-1 text-sm text-muted-foreground">
-                Scrub secrets when a recording ends.
+                Scrub with your selected severity tier when a recording ends.
               </p>
             </div>
             <Switch
@@ -818,7 +1161,7 @@ export function SettingsPage({
               variant="outline"
               size="sm"
               className="rounded-none"
-              disabled={redacting}
+              disabled={redactBusy}
               onClick={() => {
                 setRedactError(null);
                 setRedactNotice(null);
@@ -1049,35 +1392,40 @@ export function SettingsPage({
       <Dialog
         open={redactOpen}
         onOpenChange={(open) => {
-          if (redacting) return;
+          if (redactBusy) return;
           setRedactOpen(open);
         }}
       >
         <DialogContent
-          className="rounded-none sm:max-w-lg"
-          showCloseButton={!redacting}
+          className="flex max-h-[min(94.5dvh,42rem)] flex-col gap-4 overflow-hidden rounded-none sm:max-w-xl"
+          showCloseButton={!redactBusy}
         >
-          <DialogHeader>
+          <DialogHeader className="shrink-0">
             <DialogTitle>
-              {redacting ? "Redacting sensitive text" : "Redact sensitive text"}
+              {redacting
+                ? "Redacting sensitive text"
+                : previewing
+                  ? "Previewing redaction"
+                  : "Redact sensitive text"}
             </DialogTitle>
             <DialogDescription>
               {redacting
                 ? "Scanning stored capture text for this range. The app is still working."
-                : "Choose a timeframe, then scrub emails, phone numbers, cards, API keys, passwords, and similar secrets. Frames and videos stay. This cannot be undone."}
+                : previewing
+                  ? "Counting matches without changing your data."
+                  : "Pick a range and categories, preview, then scrub. Frames stay. Can’t undo."}
             </DialogDescription>
           </DialogHeader>
 
-          {redacting ? (
-            <div className="flex items-center gap-3 border border-border bg-muted/40 px-3 py-3 text-sm text-foreground">
-              <Loader2 className="size-4 shrink-0 animate-spin text-primary" />
-              <div className="min-w-0">
-                <p className="font-medium">Working…</p>
-                <p className="mt-0.5 text-muted-foreground">
-                  Scrubbing {formatRangeLabel(redactStartDate, redactEndDate)}.
-                  This can take a bit on large libraries.
-                </p>
-              </div>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+          {redactBusy ? (
+            <div className="border border-border bg-muted/40 px-3 py-3 text-sm text-foreground">
+              <p className="font-medium">Working…</p>
+              <p className="mt-0.5 text-muted-foreground">
+                {previewing ? "Previewing" : "Scrubbing"}{" "}
+                {formatRangeLabel(redactStartDate, redactEndDate)}.
+                This can take a bit on large libraries.
+              </p>
             </div>
           ) : (
             <div className="space-y-5">
@@ -1088,7 +1436,10 @@ export function SettingsPage({
                     <button
                       key={preset.id}
                       type="button"
-                      onClick={() => applyRedactPreset(preset)}
+                      onClick={() => {
+                        applyRedactPreset(preset);
+                        setRedactPreview(null);
+                      }}
                       className={cn(
                         "border px-2.5 py-1.5 text-xs font-medium transition-colors",
                         redactPresetId === preset.id
@@ -1113,6 +1464,7 @@ export function SettingsPage({
                       onChange={(event) => {
                         setRedactPresetId("custom");
                         setRedactStartDate(event.target.value);
+                        setRedactPreview(null);
                       }}
                       className="rounded-none"
                     />
@@ -1125,6 +1477,7 @@ export function SettingsPage({
                       onChange={(event) => {
                         setRedactPresetId("custom");
                         setRedactEndDate(event.target.value);
+                        setRedactPreview(null);
                       }}
                       className="rounded-none"
                     />
@@ -1140,6 +1493,164 @@ export function SettingsPage({
                   </p>
                 )}
               </div>
+
+              <div>
+                <p className="label-caps text-muted-foreground">Severity</p>
+                <div className="mt-2 grid gap-2">
+                  {REDACTION_LADDER_PRESETS.map((preset) => {
+                    const selected = activeLadder === preset.id;
+                    return (
+                      <button
+                        key={preset.id}
+                        type="button"
+                        disabled={categoriesBusy}
+                        onClick={() => applyLadder(preset.id)}
+                        className={cn(
+                          "border px-3 py-2.5 text-left transition-colors disabled:opacity-50",
+                          selected
+                            ? "border-foreground bg-foreground text-background"
+                            : "border-border bg-background text-foreground hover:bg-muted",
+                        )}
+                      >
+                        <p className="text-sm font-medium">{preset.label}</p>
+                        <p
+                          className={cn(
+                            "mt-0.5 text-xs",
+                            selected
+                              ? "text-background/80"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {preset.detail}
+                        </p>
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {activeLadder === "custom"
+                    ? `Custom · ${enabledCategories.length} categories`
+                    : `${enabledCategories.length} categories · also used for auto-redact`}
+                </p>
+
+                <button
+                  type="button"
+                  className="mt-3 text-xs font-medium text-primary hover:underline"
+                  onClick={() =>
+                    setAdvancedCategoriesOpen((current) => !current)
+                  }
+                >
+                  {advancedCategoriesOpen
+                    ? "Hide advanced categories"
+                    : "Customize categories"}
+                </button>
+
+                {advancedCategoriesOpen ? (
+                  <div className="mt-3 space-y-3">
+                    <Input
+                      value={categoryQuery}
+                      onChange={(event) => setCategoryQuery(event.target.value)}
+                      placeholder="Search categories"
+                      className="rounded-none"
+                    />
+                    <div className="max-h-52 overflow-y-auto border border-border bg-background">
+                      {filteredCategoryGroups.length === 0 ? (
+                        <p className="px-3 py-3 text-sm text-muted-foreground">
+                          No categories match.
+                        </p>
+                      ) : (
+                        filteredCategoryGroups.map((group) => {
+                          const enabledCount = group.options.filter((item) =>
+                            enabledCategorySet.has(item.tag),
+                          ).length;
+                          const allOn = enabledCount === group.options.length;
+                          return (
+                            <div
+                              key={group.id}
+                              className="border-b border-border last:border-b-0"
+                            >
+                              <div className="flex items-center justify-between gap-2 bg-muted/40 px-3 py-2">
+                                <p className="text-xs font-medium text-foreground">
+                                  {group.label}
+                                  <span className="ml-1.5 text-muted-foreground">
+                                    {enabledCount}/{group.options.length}
+                                  </span>
+                                </p>
+                                <button
+                                  type="button"
+                                  className="text-xs font-medium text-primary hover:underline disabled:opacity-40"
+                                  disabled={categoriesBusy}
+                                  onClick={() =>
+                                    toggleCategoryGroup(
+                                      group.options.map((item) => item.tag),
+                                      !allOn,
+                                    )
+                                  }
+                                >
+                                  {allOn ? "Clear" : "All"}
+                                </button>
+                              </div>
+                              <ul className="divide-y divide-border">
+                                {group.options.map((item) => {
+                                  const checked = enabledCategorySet.has(
+                                    item.tag,
+                                  );
+                                  return (
+                                    <li key={item.tag}>
+                                      <label className="flex cursor-pointer items-center gap-2.5 px-3 py-2 text-sm hover:bg-muted/50">
+                                        <input
+                                          type="checkbox"
+                                          className="size-3.5 accent-primary"
+                                          checked={checked}
+                                          disabled={categoriesBusy}
+                                          onChange={() =>
+                                            toggleRedactionCategory(item.tag)
+                                          }
+                                        />
+                                        <span className="min-w-0 flex-1 text-foreground">
+                                          {item.label}
+                                        </span>
+                                      </label>
+                                    </li>
+                                  );
+                                })}
+                              </ul>
+                            </div>
+                          );
+                        })
+                      )}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
+              {redactPreview ? (
+                <div className="border border-border bg-muted/30 px-3 py-3 text-sm">
+                  <p className="font-medium text-foreground">
+                    {redactPreview.message}
+                  </p>
+                  {previewCountRows.length > 0 ? (
+                    <ul className="mt-2 space-y-1 text-muted-foreground">
+                      {previewCountRows.slice(0, 8).map((row) => (
+                        <li
+                          key={row.tag}
+                          className="flex items-center justify-between gap-3"
+                        >
+                          <span>{row.label}</span>
+                          <span className="tabular-nums text-foreground">
+                            {row.count}
+                          </span>
+                        </li>
+                      ))}
+                      {previewCountRows.length > 8 ? (
+                        <li className="text-xs">
+                          +{previewCountRows.length - 8} more categories
+                        </li>
+                      ) : null}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
 
@@ -1148,35 +1659,65 @@ export function SettingsPage({
               {redactError}
             </p>
           ) : null}
+          </div>
 
-          <DialogFooter className="gap-2 sm:justify-between">
+          <DialogFooter className="shrink-0 gap-2 sm:justify-between">
             <Button
               type="button"
               variant="outline"
               className="rounded-none"
-              disabled={redacting}
+              disabled={redactBusy}
               onClick={() => setRedactOpen(false)}
             >
               Cancel
             </Button>
-            <Button
-              type="button"
-              className="rounded-none"
-              disabled={redacting || !redactRangeValid}
-              onClick={() => void handleRedactCapture()}
-            >
-              {redacting ? (
-                <>
-                  <Loader2 className="size-3.5 animate-spin" />
-                  Redacting…
-                </>
-              ) : (
-                <>
-                  <Shield className="size-3.5" />
-                  Redact range
-                </>
-              )}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="rounded-none"
+                disabled={
+                  redactBusy ||
+                  !redactRangeValid ||
+                  enabledCategories.length === 0
+                }
+                onClick={() => void runRedactionPass(true)}
+              >
+                {previewing ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Previewing…
+                  </>
+                ) : (
+                  <>
+                    <Eye className="size-3.5" />
+                    Preview
+                  </>
+                )}
+              </Button>
+              <Button
+                type="button"
+                className="rounded-none"
+                disabled={
+                  redactBusy ||
+                  !redactRangeValid ||
+                  enabledCategories.length === 0
+                }
+                onClick={() => void runRedactionPass(false)}
+              >
+                {redacting ? (
+                  <>
+                    <Loader2 className="size-3.5 animate-spin" />
+                    Redacting…
+                  </>
+                ) : (
+                  <>
+                    <Shield className="size-3.5" />
+                    Redact range
+                  </>
+                )}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>

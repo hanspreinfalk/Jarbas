@@ -22,3 +22,8 @@ commands.allow = ["get_redaction_prefs"]
 identifier = "allow-set-auto-redact-on-stop"
 description = "Allows toggling automatic redaction after End Recording."
 commands.allow = ["set_auto_redact_on_stop"]
+
+[[permission]]
+identifier = "allow-set-enabled-redaction-categories"
+description = "Allows choosing which PII and secret categories are scrubbed during redaction."
+commands.allow = ["set_enabled_redaction_categories"]

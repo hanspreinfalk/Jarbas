@@ -4,6 +4,12 @@ import {
   type ScreenpipeTauriStartOptions,
   type ScreenpipeTauriClient,
 } from "@screenpipe/sdk/tauri";
+import {
+  ALL_REDACTION_TAGS,
+  REDACTION_CATEGORY_OPTIONS,
+  REDACTION_SECRETS_TAGS,
+  redactionCategoryLabel,
+} from "@/lib/redaction-categories";
 
 /** Thin Jarbas host binding for `@screenpipe/sdk`. Videos land in ~/.jarbas/videos. */
 export const screenpipe: ScreenpipeTauriClient = createScreenpipeTauriClient({
@@ -95,63 +101,24 @@ export type RedactCaptureResult = {
   counts?: Record<string, number>;
 };
 
-const REDACTION_CATEGORY_LABELS: Record<string, string> = {
-  EMAIL: "Emails",
-  PASSWORD: "Passwords",
-  PASSWORD_DOTS: "Password dots",
-  PASSWORD_FIELD: "Password fields",
-  PHONE: "Phone numbers",
-  CREDIT_CARD: "Credit cards",
-  SSN: "SSNs",
-  IP_ADDRESS: "IP addresses",
-  JWT_TOKEN: "JWT tokens",
-  PRIVATE_KEY: "Private keys",
-  CONNECTION_STRING: "Connection strings",
-  URL_WITH_CREDENTIALS: "URLs with credentials",
-  STRIPE_KEY: "Stripe keys",
-  ANTHROPIC_KEY: "Anthropic keys",
-  OPENAI_KEY: "OpenAI keys",
-  GOOGLE_API_KEY: "Google API keys",
-  HUGGINGFACE_TOKEN: "Hugging Face tokens",
-  GITHUB_TOKEN: "GitHub tokens",
-  CLOUDFLARE_TOKEN: "Cloudflare tokens",
-  SUPABASE_KEY: "Supabase keys",
-  SLACK_TOKEN: "Slack tokens",
-  DISCORD_TOKEN: "Discord tokens",
-  GITLAB_TOKEN: "GitLab tokens",
-  NPM_TOKEN: "npm tokens",
-  PYPI_TOKEN: "PyPI tokens",
-  DIGITALOCEAN_TOKEN: "DigitalOcean tokens",
-  TELEGRAM_TOKEN: "Telegram tokens",
-  TWILIO_KEY: "Twilio keys",
-  SENDGRID_KEY: "SendGrid keys",
-  MAILCHIMP_KEY: "Mailchimp keys",
-  AWS_KEY: "AWS access keys",
-  AWS_SECRET: "AWS secrets",
-  AZURE_KEY: "Azure keys",
-  API_KEY: "API keys",
-  AUTH_TOKEN: "Auth tokens",
-  ENV_SECRET: "Env secrets",
-  IBAN: "IBANs",
-  SEED_PHRASE: "Seed phrases",
-  BACKUP_CODE: "Backup codes",
+export {
+  ALL_REDACTION_TAGS,
+  REDACTION_CATEGORY_OPTIONS,
+  REDACTION_SECRETS_TAGS,
+  redactionCategoryLabel,
 };
-
-export function redactionCategoryLabel(tag: string): string {
-  return (
-    REDACTION_CATEGORY_LABELS[tag] ??
-    tag.replace(/_/g, " ").toLowerCase()
-  );
-}
 
 /** Scrub emails, keys, passwords, cards, etc. from stored capture text. */
 export async function redactJarbasCapture(options: {
   startDate: string;
   endDate: string;
+  /** When true, return match counts without writing. */
+  dryRun?: boolean;
 }): Promise<RedactCaptureResult> {
   return invoke<RedactCaptureResult>("redact_jarbas_capture", {
     startDate: options.startDate,
     endDate: options.endDate,
+    dryRun: options.dryRun ?? false,
   });
 }
 
@@ -167,6 +134,7 @@ export async function getRedactionHistory(): Promise<RedactCaptureResult[]> {
 
 export type RedactionPrefs = {
   autoRedactOnStop: boolean;
+  enabledCategories: string[];
 };
 
 /** Auto-redact preference (defaults to on when unset). */
@@ -179,6 +147,36 @@ export async function setAutoRedactOnStop(
   enabled: boolean,
 ): Promise<RedactionPrefs> {
   return invoke<RedactionPrefs>("set_auto_redact_on_stop", { enabled });
+}
+
+/** Persist which PII / secret category tags are enabled for scrubbing. */
+export async function setEnabledRedactionCategories(
+  categories: string[],
+): Promise<RedactionPrefs> {
+  return invoke<RedactionPrefs>("set_enabled_redaction_categories", {
+    categories,
+  });
+}
+
+export type CaptureFilters = {
+  ignoredWindows: string[];
+  ignoredUrls: string[];
+};
+
+/** Apps/windows/URLs skipped while focused (no frames/OCR/UI stored). */
+export async function getCaptureFilters(): Promise<CaptureFilters> {
+  return invoke<CaptureFilters>("get_capture_filters");
+}
+
+/** Persist ignored app/window and URL patterns for the next recording. */
+export async function setCaptureFilters(options: {
+  ignoredWindows: string[];
+  ignoredUrls: string[];
+}): Promise<CaptureFilters> {
+  return invoke<CaptureFilters>("set_capture_filters", {
+    ignoredWindows: options.ignoredWindows,
+    ignoredUrls: options.ignoredUrls,
+  });
 }
 
 export function formatBytes(bytes: number): string {

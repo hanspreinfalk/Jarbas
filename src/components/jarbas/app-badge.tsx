@@ -1,7 +1,8 @@
+import { X } from "lucide-react";
 import { resolveAppLogo } from "@/lib/app-logos";
 import { cn } from "@/lib/utils";
 
-export function AppBadge({
+function AppLogoMark({
   name,
   className,
 }: {
@@ -10,6 +11,62 @@ export function AppBadge({
 }) {
   const app = resolveAppLogo(name);
   const isJarbas = app.name.trim().toLowerCase() === "jarbas";
+  const isSimpleIcon = Boolean(app.logoUrl?.includes("simple-icons"));
+
+  if (isJarbas) {
+    return (
+      <span
+        aria-hidden
+        className={cn(
+          "flex size-3.5 shrink-0 items-center justify-center bg-primary text-[8px] font-bold text-primary-foreground",
+          className,
+        )}
+      >
+        J
+      </span>
+    );
+  }
+
+  if (app.logoUrl) {
+    return (
+      <img
+        src={app.logoUrl}
+        alt=""
+        className={cn(
+          "size-3.5 shrink-0 object-contain",
+          isSimpleIcon && "dark:invert",
+          className,
+        )}
+        loading="lazy"
+      />
+    );
+  }
+
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-3.5 shrink-0 items-center justify-center border border-border bg-muted text-[8px] font-semibold text-muted-foreground",
+        className,
+      )}
+    >
+      {app.fallback}
+    </span>
+  );
+}
+
+export function AppBadge({
+  name,
+  className,
+  onRemove,
+  removeDisabled,
+}: {
+  name: string;
+  className?: string;
+  onRemove?: () => void;
+  removeDisabled?: boolean;
+}) {
+  const app = resolveAppLogo(name);
 
   return (
     <span
@@ -18,29 +75,19 @@ export function AppBadge({
         className,
       )}
     >
-      {isJarbas ? (
-        <span
-          aria-hidden
-          className="flex size-3.5 shrink-0 items-center justify-center bg-primary text-[8px] font-bold text-primary-foreground"
-        >
-          J
-        </span>
-      ) : app.logoUrl ? (
-        <img
-          src={app.logoUrl}
-          alt=""
-          className="size-3.5 shrink-0 object-contain"
-          loading="lazy"
-        />
-      ) : (
-        <span
-          aria-hidden
-          className="flex size-3.5 shrink-0 items-center justify-center border border-border bg-muted text-[8px] font-semibold text-muted-foreground"
-        >
-          {app.fallback}
-        </span>
-      )}
+      <AppLogoMark name={name} />
       <span className="truncate">{app.name}</span>
+      {onRemove ? (
+        <button
+          type="button"
+          className="text-muted-foreground hover:text-foreground disabled:opacity-50"
+          disabled={removeDisabled}
+          aria-label={`Remove ${app.name}`}
+          onClick={onRemove}
+        >
+          <X className="size-3" />
+        </button>
+      ) : null}
     </span>
   );
 }
@@ -60,3 +107,5 @@ export function AppBadgeList({
     </div>
   );
 }
+
+export { AppLogoMark };
