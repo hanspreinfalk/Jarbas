@@ -74,3 +74,9 @@ Default deliverables unless the user asks otherwise:
 ## Optional follow-ups
 
 Only if the user asks: upload exe/zip (Drive, GitHub Release, etc.). Do not upload by default.
+
+For the full Mac + Windows + Drive refresh (“build the releases”), use
+[jarbas-build-releases](../jarbas-build-releases/SKILL.md).
+
+For Convex production deploy + Linear Launch hygiene (“push to prod”), use
+[jarbas-push-prod](../jarbas-push-prod/SKILL.md).

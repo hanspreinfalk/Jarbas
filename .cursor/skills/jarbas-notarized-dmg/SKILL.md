@@ -65,3 +65,9 @@ spctl -a -vv -t install src-tauri/target/release/bundle/dmg/Jarbas_0.1.0_aarch64
 ## Optional follow-ups
 
 Only if the user asks: upload the DMG (Drive, GitHub Release, etc.). Do not upload by default.
+
+For the full Mac + Windows + Drive refresh (“build the releases”), use
+[jarbas-build-releases](../jarbas-build-releases/SKILL.md).
+
+For Convex production deploy + Linear Launch hygiene (“push to prod”), use
+[jarbas-push-prod](../jarbas-push-prod/SKILL.md).
