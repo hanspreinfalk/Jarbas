@@ -13,11 +13,11 @@ export function ReportCloudBanner({
     <div
       role="note"
       className={cn(
-        "inline-flex max-w-full items-center gap-1.5 border border-sky/50 bg-sky/25 px-2 py-1 text-[11px] leading-snug text-navy/75",
+        "inline-flex max-w-full items-center gap-1.5 border border-sky/50 bg-sky/25 px-2 py-1 text-[11px] leading-snug text-navy/75 dark:border-sky/40 dark:bg-sky/10 dark:text-sky",
         className,
       )}
     >
-      <Cloud className="size-3 shrink-0 text-navy/65" aria-hidden />
+      <Cloud className="size-3 shrink-0 text-navy/65 dark:text-sky/80" aria-hidden />
       <p className="min-w-0">
         {tense === "will"
           ? "Will be stored securely in the cloud. Everything else stays local."

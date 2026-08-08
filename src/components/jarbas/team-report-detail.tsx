@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useMutation } from "convex/react";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, Download, LoaderCircle } from "lucide-react";
 import {
   AnalysisItemToolbar,
   DeleteConfirmDialog,
@@ -24,6 +24,7 @@ import {
   formatGenerationDuration,
   formatRangeLabel,
 } from "@/lib/date-range";
+import { exportReportHtml } from "@/lib/export-report-html";
 import {
   normalizeTeamWorkReport,
   type TeamWorkReport,
@@ -56,6 +57,7 @@ function Section({
   return (
     <section
       id={id}
+      data-pdf-block
       className="mt-8 scroll-mt-6 border-t border-border pt-8 sm:mt-10 sm:scroll-mt-8 sm:pt-10"
     >
       <div className="mb-4 flex items-baseline gap-3 sm:mb-5">
@@ -74,15 +76,20 @@ function TeamReportIndex({ sections }: { sections: IndexItem[] }) {
   return (
     <nav
       aria-label="Team report index"
+      data-pdf-block
       className="mt-8 border border-border bg-card px-4 py-4 sm:px-5"
     >
       <p className="label-caps text-muted-foreground">Index</p>
-      <ol className="mt-3 columns-1 gap-x-8 sm:columns-2">
+      <ol className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
         {sections.map((item) => (
-          <li key={item.id} className="break-inside-avoid">
-            <button
-              type="button"
-              onClick={() => scrollToSection(item.id)}
+          <li key={item.id}>
+            <a
+              href={`#${item.id}`}
+              data-export-href={`#${item.id}`}
+              onClick={(event) => {
+                event.preventDefault();
+                scrollToSection(item.id);
+              }}
               className="group flex w-full items-baseline gap-2 py-1.5 text-left text-sm transition-colors hover:text-foreground"
             >
               <span className="label-caps shrink-0 text-[10px] text-muted-foreground group-hover:text-foreground/70">
@@ -91,7 +98,7 @@ function TeamReportIndex({ sections }: { sections: IndexItem[] }) {
               <span className="min-w-0 text-muted-foreground underline-offset-2 group-hover:text-foreground group-hover:underline">
                 {item.title}
               </span>
-            </button>
+            </a>
           </li>
         ))}
       </ol>
@@ -205,7 +212,9 @@ export function TeamReportDetail({
 }) {
   const updateReport = useMutation(api.reports.update);
   const removeReport = useMutation(api.reports.remove);
+  const reportRef = useRef<HTMLDivElement | null>(null);
   const [tab, setTab] = useState<DetailViewTab>("details");
+  const [exporting, setExporting] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
@@ -247,6 +256,23 @@ export function TeamReportDetail({
   const index = useMemo(() => buildTeamIndex(report), [report]);
   const people = report.memberSnapshots;
   const peopleCount = people.length;
+
+  async function handleExportHtml() {
+    if (!reportRef.current || exporting) return;
+    setExporting(true);
+    setActionError(null);
+    try {
+      await exportReportHtml(
+        reportRef.current,
+        `${report.title}-${report.period || "team-report"}`,
+        report.title,
+      );
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(false);
+    }
+  }
 
   async function handleSave() {
     if (!draft.title.trim()) {
@@ -331,6 +357,24 @@ export function TeamReportDetail({
               onSave={() => void handleSave()}
               onDeleteRequest={() => setConfirmDelete(true)}
             />
+          ) : null}
+          {tab === "details" && !editing ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-none"
+              disabled={exporting}
+              aria-label="Export"
+              onClick={() => void handleExportHtml()}
+            >
+              {exporting ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+              {exporting ? "Exporting…" : "Export"}
+            </Button>
           ) : null}
         </div>
       </div>
@@ -437,8 +481,8 @@ export function TeamReportDetail({
         </div>
       ) : (
         <>
-          <div className="pt-8 sm:pt-10">
-            <header className="pb-2">
+          <div ref={reportRef} className="pt-8 sm:pt-10">
+            <header data-pdf-block className="pb-2">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
                 <p className="label-caps text-muted-foreground">
                   {report.period || "Team report"}
@@ -480,11 +524,13 @@ export function TeamReportDetail({
               title="Explanation"
               id="team-report-01"
             >
-              <ReportMarkdown
-                key={`${report.id}-brief`}
-                content={String(report.executiveBrief ?? "")}
-              />
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              <div data-pdf-block>
+                <ReportMarkdown
+                  key={`${report.id}-brief`}
+                  content={String(report.executiveBrief ?? "")}
+                />
+              </div>
+              <div className="mt-4 grid gap-3 sm:grid-cols-2" data-pdf-block>
                 {report.keyInsight ? (
                   <div className="border border-border bg-card px-3 py-3">
                     <p className="label-caps text-muted-foreground">
@@ -523,7 +569,7 @@ export function TeamReportDetail({
                   No member snapshots were attached to this team report.
                 </p>
               ) : (
-                <ul className="divide-y divide-border border border-border bg-card">
+                <ul data-pdf-block className="divide-y divide-border border border-border bg-card">
                   {people.map((member) => (
                     <li
                       key={`scope-${member.person}-${member.clerkUserId}`}
@@ -559,7 +605,10 @@ export function TeamReportDetail({
               title="Team snapshot"
               id="team-report-03"
             >
-              <div className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-3">
+              <div
+                data-pdf-block
+                className="grid grid-cols-2 gap-px border border-border bg-border sm:grid-cols-3"
+              >
                 {report.kpis.map((kpi) => (
                   <div
                     key={`${kpi.label}-${kpi.value}`}
@@ -588,50 +637,99 @@ export function TeamReportDetail({
               title="Member snapshots"
               id="team-report-04"
             >
-              <ul className="space-y-3">
+              <ul className="space-y-4">
                 {report.memberSnapshots.map((member) => (
                   <li
                     key={`snap-${member.person}-${member.clerkUserId}`}
-                    className="border border-border bg-card px-4 py-4 sm:px-5"
+                    data-pdf-block
+                    className="border border-border bg-card"
                   >
-                    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-                      <p className="text-sm font-semibold tracking-tight text-foreground">
-                        {displayPersonName(member.person)}
-                      </p>
-                      {member.role ? (
-                        <span className="text-xs text-muted-foreground">
-                          {member.role}
-                        </span>
-                      ) : null}
+                    <div className="flex items-start gap-3 border-b border-border px-4 py-4 sm:px-5">
+                      <span className="mt-0.5 flex size-10 shrink-0 items-center justify-center border border-border bg-background text-xs font-semibold tracking-wide text-muted-foreground">
+                        {initialsFor(member.person)}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-base font-semibold tracking-tight text-foreground">
+                          {displayPersonName(member.person)}
+                        </p>
+                        {member.role ? (
+                          <p className="mt-0.5 text-sm text-muted-foreground">
+                            {member.role}
+                          </p>
+                        ) : null}
+                        {member.headline ? (
+                          <p className="mt-2 text-sm leading-relaxed text-foreground">
+                            {member.headline}
+                          </p>
+                        ) : null}
+                      </div>
                     </div>
-                    {member.headline ? (
-                      <p className="mt-2 text-sm leading-relaxed text-foreground">
-                        {member.headline}
-                      </p>
-                    ) : null}
-                    {member.strengths.length > 0 ? (
-                      <p className="mt-3 text-xs leading-relaxed text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          Strengths ·{" "}
-                        </span>
-                        {member.strengths.join(" · ")}
-                      </p>
-                    ) : null}
-                    {member.risks.length > 0 ? (
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          Risks ·{" "}
-                        </span>
-                        {member.risks.join(" · ")}
-                      </p>
-                    ) : null}
+
+                    {(member.strengths.length > 0 ||
+                      member.risks.length > 0) && (
+                      <div className="grid gap-px border-b border-border bg-border sm:grid-cols-2">
+                        <div className="bg-card px-4 py-4 sm:px-5">
+                          <p className="label-caps text-muted-foreground">
+                            Strengths
+                          </p>
+                          {member.strengths.length > 0 ? (
+                            <ul className="mt-3 space-y-2">
+                              {member.strengths.map((item) => (
+                                <li
+                                  key={`${member.person}-s-${item}`}
+                                  className="flex gap-2 text-sm leading-relaxed text-foreground"
+                                >
+                                  <span
+                                    aria-hidden
+                                    className="mt-2 size-1 shrink-0 rounded-full bg-primary"
+                                  />
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-sm text-muted-foreground">
+                              None noted.
+                            </p>
+                          )}
+                        </div>
+                        <div className="bg-card px-4 py-4 sm:px-5">
+                          <p className="label-caps text-muted-foreground">
+                            Risks
+                          </p>
+                          {member.risks.length > 0 ? (
+                            <ul className="mt-3 space-y-2">
+                              {member.risks.map((item) => (
+                                <li
+                                  key={`${member.person}-r-${item}`}
+                                  className="flex gap-2 text-sm leading-relaxed text-foreground"
+                                >
+                                  <span
+                                    aria-hidden
+                                    className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground/50"
+                                  />
+                                  <span>{item}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          ) : (
+                            <p className="mt-3 text-sm text-muted-foreground">
+                              None noted.
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
                     {member.topOpportunity ? (
-                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                        <span className="font-medium text-foreground">
-                          Top unlock ·{" "}
-                        </span>
-                        {member.topOpportunity}
-                      </p>
+                      <div className="bg-muted/50 px-4 py-4 sm:px-5">
+                        <p className="label-caps text-muted-foreground">
+                          Top unlock
+                        </p>
+                        <p className="mt-2 text-sm font-medium leading-relaxed text-foreground">
+                          {member.topOpportunity}
+                        </p>
+                      </div>
                     ) : null}
                   </li>
                 ))}
@@ -645,21 +743,29 @@ export function TeamReportDetail({
               title="Team findings"
               id="team-report-05"
             >
-              <ul className="space-y-3">
-                {report.teamFindings.map((finding) => (
+              <ol className="space-y-3">
+                {report.teamFindings.map((finding, findingIndex) => (
                   <li
                     key={finding.title}
-                    className="border border-border bg-card px-4 py-3"
+                    data-pdf-block
+                    className="border border-border bg-card"
                   >
-                    <p className="text-sm font-semibold text-foreground">
-                      {finding.title}
-                    </p>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      {finding.detail}
-                    </p>
+                    <div className="flex gap-3 px-4 py-4 sm:px-5">
+                      <span className="label-caps mt-0.5 shrink-0 text-[10px] text-muted-foreground">
+                        {String(findingIndex + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-semibold tracking-tight text-foreground">
+                          {finding.title}
+                        </p>
+                        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                          {finding.detail}
+                        </p>
+                      </div>
+                    </div>
                   </li>
                 ))}
-              </ul>
+              </ol>
             </Section>
           ) : null}
 
@@ -669,22 +775,42 @@ export function TeamReportDetail({
               title="Shared patterns"
               id="team-report-06"
             >
-              <ul className="space-y-3">
-                {report.sharedPatterns.map((pattern) => (
+              <ul className="space-y-4">
+                {report.sharedPatterns.map((pattern, patternIndex) => (
                   <li
                     key={pattern.title}
-                    className="border border-border bg-card px-4 py-3"
+                    data-pdf-block
+                    className="border border-border bg-card"
                   >
-                    <p className="text-sm font-semibold text-foreground">
-                      {pattern.title}
-                    </p>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      {pattern.detail}
-                    </p>
+                    <div className="flex gap-3 border-b border-border px-4 py-4 sm:px-5">
+                      <span className="label-caps mt-0.5 shrink-0 text-[10px] text-muted-foreground">
+                        {String(patternIndex + 1).padStart(2, "0")}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-base font-semibold tracking-tight text-foreground">
+                          {pattern.title}
+                        </p>
+                        <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                          {pattern.detail}
+                        </p>
+                      </div>
+                    </div>
                     {pattern.members.length > 0 ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Seen in · {pattern.members.join(", ")}
-                      </p>
+                      <div className="bg-muted/50 px-4 py-3 sm:px-5">
+                        <p className="label-caps text-muted-foreground">
+                          Seen in
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {pattern.members.map((name) => (
+                            <span
+                              key={`${pattern.title}-${name}`}
+                              className="border border-border bg-background px-2.5 py-1 text-sm text-foreground"
+                            >
+                              {displayPersonName(name)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     ) : null}
                   </li>
                 ))}
@@ -698,29 +824,57 @@ export function TeamReportDetail({
               title="Cross-team bottlenecks"
               id="team-report-07"
             >
-              <ul className="space-y-3">
-                {report.crossTeamBottlenecks.map((item) => (
+              <ul className="space-y-4">
+                {report.crossTeamBottlenecks.map((item, itemIndex) => (
                   <li
                     key={item.title}
-                    className="border border-border bg-card px-4 py-3"
+                    data-pdf-block
+                    className="border border-border bg-card"
                   >
-                    <p className="text-sm font-semibold text-foreground">
-                      {item.title}
-                    </p>
-                    {item.cost ? (
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        Cost · {item.cost}
+                    <div className="flex gap-3 border-b border-border px-4 py-4 sm:px-5">
+                      <span className="label-caps mt-0.5 shrink-0 text-[10px] text-muted-foreground">
+                        {String(itemIndex + 1).padStart(2, "0")}
+                      </span>
+                      <p className="min-w-0 flex-1 text-base font-semibold tracking-tight text-foreground">
+                        {item.title}
                       </p>
-                    ) : null}
-                    {item.unlock ? (
-                      <p className="mt-1 text-sm leading-relaxed text-foreground">
-                        Unlock · {item.unlock}
-                      </p>
-                    ) : null}
+                    </div>
+                    {(item.cost || item.unlock) && (
+                      <div className="grid gap-px border-b border-border bg-border sm:grid-cols-2">
+                        <div className="bg-card px-4 py-4 sm:px-5">
+                          <p className="label-caps text-muted-foreground">
+                            Cost
+                          </p>
+                          <p className="mt-2 text-sm leading-relaxed text-foreground">
+                            {item.cost || "Not quantified."}
+                          </p>
+                        </div>
+                        <div className="bg-card px-4 py-4 sm:px-5">
+                          <p className="label-caps text-muted-foreground">
+                            Unlock
+                          </p>
+                          <p className="mt-2 text-sm leading-relaxed text-foreground">
+                            {item.unlock || "Define the intervention."}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                     {item.owners.length > 0 ? (
-                      <p className="mt-2 text-xs text-muted-foreground">
-                        Owners · {item.owners.join(", ")}
-                      </p>
+                      <div className="bg-muted/50 px-4 py-3 sm:px-5">
+                        <p className="label-caps text-muted-foreground">
+                          Owners
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {item.owners.map((name) => (
+                            <span
+                              key={`${item.title}-${name}`}
+                              className="border border-border bg-background px-2.5 py-1 text-sm text-foreground"
+                            >
+                              {displayPersonName(name)}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
                     ) : null}
                   </li>
                 ))}
@@ -734,30 +888,52 @@ export function TeamReportDetail({
               title="Team opportunities"
               id="team-report-08"
             >
-              <ul className="space-y-3">
-                {report.teamOpportunities.map((item) => (
+              <ul className="space-y-4">
+                {report.teamOpportunities.map((item, itemIndex) => (
                   <li
                     key={item.name}
-                    className="border border-border bg-card px-4 py-3"
+                    data-pdf-block
+                    className="border border-border bg-card"
                   >
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
-                      <p className="text-sm font-semibold text-foreground">
-                        {item.name}
+                    <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border px-4 py-4 sm:px-5">
+                      <div className="flex min-w-0 flex-1 gap-3">
+                        <span className="label-caps mt-0.5 shrink-0 text-[10px] text-muted-foreground">
+                          {String(itemIndex + 1).padStart(2, "0")}
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-base font-semibold tracking-tight text-foreground">
+                            {item.name}
+                          </p>
+                          <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+                            {item.unlock}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <span className="border border-border bg-background px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
+                          Impact {item.impact}
+                        </span>
+                        <span className="border border-border bg-background px-2.5 py-1 text-xs tabular-nums text-muted-foreground">
+                          Effort {item.effort}
+                        </span>
+                        {item.horizon ? (
+                          <span className="border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground">
+                            {item.horizon}
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                    <div className="bg-muted/50 px-4 py-3 sm:px-5">
+                      <p className="label-caps text-muted-foreground">
+                        From pattern
                       </p>
-                      <p className="text-xs text-muted-foreground">
-                        Impact {item.impact} · Effort {item.effort}
-                        {item.horizon ? ` · ${item.horizon}` : ""}
+                      <p className="mt-1.5 text-sm text-foreground">
+                        {item.fromPattern || "Shared pattern"}
+                        {item.owners.length
+                          ? ` · ${item.owners.map(displayPersonName).join(", ")}`
+                          : ""}
                       </p>
                     </div>
-                    <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                      {item.unlock}
-                    </p>
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      From {item.fromPattern || "shared pattern"}
-                      {item.owners.length
-                        ? ` · ${item.owners.join(", ")}`
-                        : ""}
-                    </p>
                   </li>
                 ))}
               </ul>
@@ -805,6 +981,7 @@ export function TeamReportDetail({
                 {report.nextSteps.map((step, indexValue) => (
                   <li
                     key={`${step.action}-${step.owner}-${indexValue}`}
+                    data-pdf-block
                     className={cn(
                       "flex gap-3 border border-border bg-card px-4 py-3 text-sm text-foreground",
                     )}

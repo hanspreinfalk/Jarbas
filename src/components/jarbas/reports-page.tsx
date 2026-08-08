@@ -45,7 +45,7 @@ import { api } from "@convex/_generated/api";
 import type { Id } from "@convex/_generated/dataModel";
 import type { AnalysisTranscript } from "@/lib/analysis";
 import { formatGeneratedAt, formatGenerationDuration, formatRangeLabel } from "@/lib/date-range";
-import { exportReportPdf } from "@/lib/export-report-pdf";
+import { exportReportHtml } from "@/lib/export-report-html";
 import {
   applyReportDraft,
   toReportDraft,
@@ -100,12 +100,16 @@ function ReportIndex() {
       className="mt-8 border border-border bg-card px-4 py-4 sm:px-5"
     >
       <p className="label-caps text-muted-foreground">Index</p>
-      <ol className="mt-3 columns-1 gap-x-8 sm:columns-2">
+      <ol className="mt-3 grid grid-cols-1 gap-x-8 sm:grid-cols-2">
         {REPORT_SECTIONS.map((item) => (
-          <li key={item.id} className="break-inside-avoid">
-            <button
-              type="button"
-              onClick={() => scrollToReportSection(item.id)}
+          <li key={item.id}>
+            <a
+              href={`#${item.id}`}
+              data-export-href={`#${item.id}`}
+              onClick={(event) => {
+                event.preventDefault();
+                scrollToReportSection(item.id);
+              }}
               className="group flex w-full items-baseline gap-2 py-1.5 text-left text-sm transition-colors hover:text-foreground"
             >
               <span className="label-caps shrink-0 text-[10px] text-muted-foreground group-hover:text-foreground/70">
@@ -114,7 +118,7 @@ function ReportIndex() {
               <span className="min-w-0 text-muted-foreground underline-offset-2 group-hover:text-foreground group-hover:underline">
                 {item.title}
               </span>
-            </button>
+            </a>
           </li>
         ))}
       </ol>
@@ -134,7 +138,7 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <section id={id} className="mt-8 scroll-mt-6 border-t border-border pt-8 sm:mt-10 sm:scroll-mt-8 sm:pt-10">
+    <section id={id} data-pdf-block className="mt-8 scroll-mt-6 border-t border-border pt-8 sm:mt-10 sm:scroll-mt-8 sm:pt-10">
       <div className="mb-4 flex items-baseline gap-3 sm:mb-5">
         <span className="label-caps shrink-0 text-muted-foreground">{step}</span>
         <h2 className="text-base font-semibold tracking-tight text-foreground sm:text-lg">
@@ -221,13 +225,14 @@ function ReportDetail({
     fill: item.fill,
   }));
 
-  async function handleExportPdf() {
+  async function handleExport() {
     if (!reportRef.current || exporting) return;
     setExporting(true);
     try {
-      await exportReportPdf(
+      await exportReportHtml(
         reportRef.current,
         `${report.title}-${report.period}`,
+        report.title,
       );
     } finally {
       setExporting(false);
@@ -312,14 +317,14 @@ function ReportDetail({
               size="sm"
               className="rounded-none"
               disabled={exporting}
-              onClick={() => void handleExportPdf()}
+              onClick={() => void handleExport()}
             >
               {exporting ? (
                 <LoaderCircle className="size-3.5 animate-spin" />
               ) : (
                 <Download className="size-3.5" />
               )}
-              {exporting ? "Exporting…" : "Export PDF"}
+              {exporting ? "Exporting…" : "Export"}
             </Button>
           ) : null}
         </div>

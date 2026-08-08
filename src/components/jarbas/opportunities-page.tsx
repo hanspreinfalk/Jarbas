@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowLeft, Loader2, Sparkles } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ArrowLeft, Download, Loader2, LoaderCircle, Sparkles } from "lucide-react";
 import {
   AnalysisItemToolbar,
   DeleteConfirmDialog,
@@ -26,6 +26,7 @@ import {
   type AnalysisTranscript,
 } from "@/lib/analysis";
 import { formatRangeLabel } from "@/lib/date-range";
+import { exportReportHtml } from "@/lib/export-report-html";
 import type { Opportunity } from "@/lib/opportunities";
 
 type OpportunityDraft = {
@@ -90,6 +91,8 @@ function OpportunityDetail({
   const [deleting, setDeleting] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const exportRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     setDraft(toDraft(opportunity));
@@ -171,6 +174,23 @@ function OpportunityDetail({
     }
   }
 
+  async function handleExport() {
+    if (!exportRef.current || exporting || editing) return;
+    setExporting(true);
+    setActionError(null);
+    try {
+      await exportReportHtml(
+        exportRef.current,
+        `${opportunity.title}-opportunity`,
+        opportunity.title,
+      );
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setExporting(false);
+    }
+  }
+
   return (
     <div className="animate-rise mx-auto w-full max-w-3xl px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -207,9 +227,28 @@ function OpportunityDetail({
               onDeleteRequest={() => setConfirmDelete(true)}
             />
           ) : null}
+          {tab === "details" && !editing ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="rounded-none"
+              disabled={exporting}
+              aria-label="Export"
+              onClick={() => void handleExport()}
+            >
+              {exporting ? (
+                <LoaderCircle className="size-3.5 animate-spin" />
+              ) : (
+                <Download className="size-3.5" />
+              )}
+              {exporting ? "Exporting…" : "Export"}
+            </Button>
+          ) : null}
         </div>
       </div>
 
+      <div ref={exportRef}>
       <header className="mt-6 border-b border-border pb-6">
         {editing ? (
           <div className="space-y-4">
@@ -460,6 +499,7 @@ function OpportunityDetail({
           </section>
         </>
       )}
+      </div>
 
       <DeleteConfirmDialog
         open={confirmDelete}
